@@ -9,7 +9,16 @@ npm install
 npm run start:dev
 ```
 
-The starter health endpoint is available at `GET /api/health`.
+After startup, the terminal displays the `PZEE` banner in Indian Saffron
+(`#FF9933`) and shows the local API URL.
+
+By default, the backend runs locally at `http://127.0.0.1:3000`. Change `HOST`
+or `PORT` in `.env` when a different local address is needed.
+
+Available starter endpoints:
+
+- `GET /api/example` demonstrates the controller, service, and model flow.
+- `GET /api/health` reports whether the application is running.
 
 ## Structure
 
