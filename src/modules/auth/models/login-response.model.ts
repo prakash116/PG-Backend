@@ -1,41 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { UserRole, UserType } from '../../../generated/prisma/client';
+import { SessionUser } from './session-response.model';
 
-export class LoginUserResponse {
-  @ApiProperty({ example: 'cm1234567890' })
-  id!: string;
-
-  @ApiProperty({ example: 'John' })
-  firstName!: string;
-
-  @ApiProperty({ example: 'Doe', nullable: true, type: String })
-  lastName!: string | null;
-
-  @ApiProperty({ example: 'john@gmail.com', format: 'email' })
-  email!: string;
-
-  @ApiProperty({ example: '9876543210' })
-  phone!: string;
-
-  @ApiProperty({ enum: UserRole, example: UserRole.USER })
-  role!: UserRole;
-
-  @ApiProperty({ enum: UserType, nullable: true })
-  userType!: UserType | null;
-
-  @ApiProperty({ nullable: true, type: String })
-  profileImage!: string | null;
-
-  @ApiProperty({ example: '2026-08-05T12:30:00.000Z', format: 'date-time' })
-  lastLogin!: string;
-}
-
+// The access token is not returned in the body: it is written to an HttpOnly
+// session cookie so the browser never exposes it to JavaScript.
 export class LoginDataResponse {
-  @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' })
-  accessToken!: string;
-
-  @ApiProperty({ type: LoginUserResponse })
-  user!: LoginUserResponse;
+  @ApiProperty({ type: SessionUser })
+  user!: SessionUser;
 }
 
 export class LoginResponse {
