@@ -3,7 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { DatabaseModule } from '../../database/database.module';
 import { AuthController } from './controllers/auth.controller';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthService } from './services/auth.service';
+import { SessionCookieService } from './services/session-cookie.service';
 
 @Module({
   imports: [
@@ -13,11 +15,14 @@ import { AuthService } from './services/auth.service';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: 60 * 60 },
+        // Matches the session cookie lifetime so both expire together.
+        signOptions: {
+          expiresIn: `${configService.getOrThrow<number>('app.session.maxAgeDays')}d`,
+        },
       }),
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, SessionCookieService, JwtAuthGuard],
 })
 export class AuthModule {}

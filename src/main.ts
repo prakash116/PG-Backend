@@ -6,12 +6,30 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { printStartupBanner } from './common/startup-banner';
 
+type ExpressMiddleware = (
+  request: unknown,
+  response: unknown,
+  next: (error?: unknown) => void,
+) => void;
+
+const cookieParser = require('cookie-parser') as () => ExpressMiddleware;
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
   app.setGlobalPrefix('api');
-  app.enableCors();
+  app.use(cookieParser());
+
+  // Credentials must be enabled for the browser to send the session cookie.
+  // An empty allowlist reflects the requesting origin, which keeps local
+  // development working without configuration.
+  const corsOrigins = configService.get<string[]>('app.corsOrigins', []);
+  app.enableCors({
+    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
