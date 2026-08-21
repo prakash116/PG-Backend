@@ -42,3 +42,6 @@ Thumbs.db
 /.claude/
 /.windsurf/
 /skills-lock.json
+
+# Locally stored uploads (production uses Cloudinary)
+/uploads/

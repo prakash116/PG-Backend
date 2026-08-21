@@ -1,10 +1,16 @@
 /** Application entry point: configures global HTTP behavior and starts NestJS. */
+import { join } from 'node:path';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { printStartupBanner } from './common/startup-banner';
+import {
+  UPLOADS_DIRECTORY,
+  UPLOADS_ROUTE_PREFIX,
+} from './modules/uploads/services/storage.service';
 
 type ExpressMiddleware = (
   request: unknown,
@@ -15,11 +21,17 @@ type ExpressMiddleware = (
 const cookieParser = require('cookie-parser') as () => ExpressMiddleware;
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
 
   app.setGlobalPrefix('api');
   app.use(cookieParser());
+
+  // Locally stored profile photos are served straight from disk. This is a
+  // no-op when Cloudinary is configured, since nothing is written here.
+  app.useStaticAssets(join(process.cwd(), UPLOADS_DIRECTORY), {
+    prefix: UPLOADS_ROUTE_PREFIX + '/',
+  });
 
   // Credentials must be enabled for the browser to send the session cookie.
   // An empty allowlist reflects the requesting origin, which keeps local

@@ -29,10 +29,10 @@ export class UserListItemResponse {
   profileImage!: string | null;
 
   @ApiProperty({ example: 'Delhi' })
-  state!: string;
+  state!: string | null;
 
   @ApiProperty({ example: 'New Delhi' })
-  city!: string;
+  city!: string | null;
 
   @ApiProperty({ example: '2026-08-05T10:30:00.000Z', format: 'date-time' })
   createdAt!: string;

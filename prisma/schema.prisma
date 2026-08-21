@@ -44,11 +44,11 @@ model User {
   gender          Gender?
   dateOfBirth     DateTime? @db.Date
   profileImage    String?
-  country         String
-  state           String
-  city            String
-  address         String
-  pincode         String
+  country         String?
+  state           String?
+  city            String?
+  address         String?
+  pincode         String?
   isEmailVerified Boolean   @default(false)
   isPhoneVerified Boolean   @default(false)
   isActive        Boolean   @default(true)
@@ -56,4 +56,19 @@ model User {
   lastLogin       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  pg Pg?
+}
+
+/// One PG per owner, created with the owner during registration.
+model Pg {
+  id        String   @id @default(cuid())
+  /// Short, shareable code an owner can quote (e.g. PZ-4F7K2A).
+  pgCode    String   @unique
+  name      String
+  location  String
+  ownerId   String   @unique
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -3,13 +3,16 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsMobilePhone,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsStrongPassword,
+  Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender, UserRole, UserType } from '../../../generated/prisma/client';
@@ -22,20 +25,48 @@ function normalizeEmail({ value }: TransformFnParams): unknown {
   return typeof value === 'string' ? value.trim().toLowerCase() : value;
 }
 
-export class RegisterDto {
-  @ApiProperty({ example: 'John', minLength: 2, maxLength: 50 })
-  @Transform(trimString)
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(2)
-  @MaxLength(50)
-  firstName!: string;
+/** "Find a PG" applicants describe themselves; "List a PG" owners describe a property. */
+function isSeeker(dto: RegisterDto): boolean {
+  return dto.role === UserRole.USER;
+}
 
-  @ApiPropertyOptional({ example: 'Doe' })
+function isOwner(dto: RegisterDto): boolean {
+  return dto.role === UserRole.PG_OWNER;
+}
+
+/** Either an absolute URL or a path served by this API, e.g. /uploads/abc.webp */
+const PROFILE_IMAGE_PATTERN = /^(https?:\/\/|\/)[^\s]+$/;
+
+/**
+ * One registration payload for both audiences. `role` selects which of the two
+ * field sets is required, so a single endpoint and a single Swagger schema
+ * cover "Find a PG" and "List a PG".
+ */
+export class RegisterDto {
+  @ApiProperty({
+    enum: [UserRole.USER, UserRole.PG_OWNER],
+    example: UserRole.USER,
+    description:
+      'USER registers someone looking for a PG. PG_OWNER registers an owner and creates their PG.',
+  })
+  @IsIn([UserRole.USER, UserRole.PG_OWNER], {
+    message: 'Role must be either USER or PG_OWNER.',
+  })
+  role!: UserRole;
+
+  @ApiProperty({
+    example: 'John Doe',
+    minLength: 2,
+    maxLength: 100,
+    description:
+      'Full name of the person registering. For an owner this is the owner name.',
+  })
   @Transform(trimString)
-  @IsOptional()
   @IsString()
-  lastName?: string;
+  @MinLength(2)
+  @MaxLength(100)
+  @IsNotEmpty({ message: 'Full name is required.' })
+  fullName!: string;
 
   @ApiProperty({ example: 'john@gmail.com', format: 'email' })
   @Transform(normalizeEmail)
@@ -65,12 +96,43 @@ export class RegisterDto {
   )
   password!: string;
 
-  @ApiProperty({
-    enum: [UserRole.PG_OWNER, UserRole.USER],
-    example: UserRole.PG_OWNER,
+  @ApiPropertyOptional({
+    example: '/uploads/profile/8f2c1d.webp',
+    description: 'URL returned by POST /v1/uploads/profile-image.',
   })
-  @IsEnum(UserRole)
-  role!: UserRole;
+  @Transform(trimString)
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  @Matches(PROFILE_IMAGE_PATTERN, {
+    message: 'Profile image must be a URL or an uploaded image path.',
+  })
+  profileImage?: string;
+
+  // ----- "Find a PG" (USER) -----
+
+  @ApiPropertyOptional({
+    example: 'Laxmi Nagar, New Delhi',
+    description: 'Required when role is USER.',
+  })
+  @ValidateIf(isSeeker)
+  @Transform(trimString)
+  @IsString()
+  @MaxLength(500)
+  @IsNotEmpty({ message: 'Address is required.' })
+  address?: string;
+
+  @ApiPropertyOptional({
+    example: '2001-05-12',
+    format: 'date',
+    description: 'Required when role is USER.',
+  })
+  @ValidateIf(isSeeker)
+  @IsDateString(
+    { strict: true },
+    { message: 'Date of birth must be a valid date (YYYY-MM-DD).' },
+  )
+  dateOfBirth?: string;
 
   @ApiPropertyOptional({
     enum: UserType,
@@ -85,38 +147,54 @@ export class RegisterDto {
   @IsEnum(Gender)
   gender?: Gender;
 
-  @ApiPropertyOptional({ example: '2001-05-12', format: 'date' })
+  // ----- "List a PG" (PG_OWNER) -----
+
+  @ApiPropertyOptional({
+    example: 'Sunrise Boys PG',
+    description: 'PG house name. Required when role is PG_OWNER.',
+  })
+  @ValidateIf(isOwner)
+  @Transform(trimString)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  @IsNotEmpty({ message: 'PG house name is required.' })
+  pgName?: string;
+
+  @ApiPropertyOptional({
+    example: 'Kohat Enclave, Pitampura, Delhi',
+    description: 'PG location. Required when role is PG_OWNER.',
+  })
+  @ValidateIf(isOwner)
+  @Transform(trimString)
+  @IsString()
+  @MaxLength(500)
+  @IsNotEmpty({ message: 'PG location is required.' })
+  pgLocation?: string;
+
+  // ----- Optional, kept so existing callers that still send them keep working -----
+
+  @ApiPropertyOptional({ example: 'India' })
+  @Transform(trimString)
   @IsOptional()
-  @IsDateString({ strict: true })
-  dateOfBirth?: string;
-
-  @ApiProperty({ example: 'India' })
-  @Transform(trimString)
   @IsString()
-  @IsNotEmpty()
-  country!: string;
+  country?: string;
 
-  @ApiProperty({ example: 'Delhi' })
+  @ApiPropertyOptional({ example: 'Delhi' })
   @Transform(trimString)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  state!: string;
+  state?: string;
 
-  @ApiProperty({ example: 'New Delhi' })
+  @ApiPropertyOptional({ example: 'New Delhi' })
   @Transform(trimString)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  city!: string;
+  city?: string;
 
-  @ApiProperty({ example: 'Laxmi Nagar' })
+  @ApiPropertyOptional({ example: '110092' })
   @Transform(trimString)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  address!: string;
-
-  @ApiProperty({ example: '110092' })
-  @Transform(trimString)
-  @IsString()
-  @IsNotEmpty()
-  pincode!: string;
+  pincode?: string;
 }

@@ -1,6 +1,24 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole, UserType } from '../../../generated/prisma/client';
 
+/** The PG created alongside a PG_OWNER registration. */
+export class RegisteredPgResponse {
+  @ApiProperty({ example: 'cm1234567890' })
+  id!: string;
+
+  @ApiProperty({
+    example: 'PZ-4F7K2A',
+    description: 'Unique PG identifier the owner can share.',
+  })
+  pgCode!: string;
+
+  @ApiProperty({ example: 'Sunrise Boys PG' })
+  name!: string;
+
+  @ApiProperty({ example: 'Kohat Enclave, Pitampura, Delhi' })
+  location!: string;
+}
+
 export class RegisteredUserResponse {
   @ApiProperty({ example: 'cm1234567890' })
   id!: string;
@@ -27,8 +45,22 @@ export class RegisteredUserResponse {
   })
   userType!: UserType | null;
 
+  @ApiProperty({
+    example: '/uploads/profile/8f2c1d.webp',
+    nullable: true,
+    type: String,
+  })
+  profileImage!: string | null;
+
   @ApiProperty({ example: '2026-08-05T10:30:00.000Z', format: 'date-time' })
   createdAt!: string;
+
+  @ApiProperty({
+    type: RegisteredPgResponse,
+    nullable: true,
+    description: 'Present only when the account was registered as a PG owner.',
+  })
+  pg!: RegisteredPgResponse | null;
 }
 
 export class RegisterResponse {

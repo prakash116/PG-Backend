@@ -69,7 +69,11 @@ export class AuthController {
   }
 
   @Post('register')
-  @ApiOperation({ summary: 'Register a user' })
+  @ApiOperation({
+    summary: 'Register a PG seeker or a PG owner',
+    description:
+      'One endpoint for both roles. USER requires address and dateOfBirth; PG_OWNER requires pgName and pgLocation and receives a unique PG code. The session cookie is issued on success, so the new account is signed in.',
+  })
   @ApiBody({ type: RegisterDto })
   @ApiCreatedResponse({
     description: 'Registration successful.',
@@ -83,8 +87,13 @@ export class AuthController {
     description: 'Super Admin registration is not allowed.',
   })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
-  register(@Body() registerDto: RegisterDto): Promise<RegisterResponse> {
-    return this.authService.register(registerDto);
+  async register(
+    @Body() registerDto: RegisterDto,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<RegisterResponse> {
+    const { tokenPayload, body } = await this.authService.register(registerDto);
+    await this.sessionCookieService.issue(response, tokenPayload);
+    return body;
   }
 
   @Get('me')
