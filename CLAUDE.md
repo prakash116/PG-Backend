@@ -93,6 +93,23 @@ Never "fix" a build by editing generated files, loosening `tsconfig` `strict`,
 adding `any`, or `@ts-ignore`-ing an import. Those hide Rule 1 and Rule 2 problems
 and break the next person. Regenerate or fix config instead.
 
+## Roles
+
+Three roles live in the `UserRole` enum: `SUPER_ADMIN`, `PG_OWNER`, `USER`.
+
+- Server-side enforcement is `@Roles(...)` + `RolesGuard`, and **`JwtAuthGuard`
+  must be listed first** in `@UseGuards` — it populates the `sessionUser` that
+  `RolesGuard` reads. A route with no `@Roles` allows any authenticated user.
+- `RolesGuard` fails closed: no `sessionUser` means 403, never an accidental allow.
+- Registration cannot create a `SUPER_ADMIN` (`auth.service.ts` rejects it).
+  Admins come from the seed or a deliberate promotion.
+- The website mirrors this in `lib/auth/roles.ts` (`getRoleDestination`) and
+  `components/auth/RoleGate.tsx`. Change both sides together.
+
+`npm run seed` creates one known login per role and is safe to re-run — every
+write is an upsert keyed on email, and an existing PG never has its `pgCode`
+regenerated, because that code is an identity people share.
+
 ## Conventions
 
 - Feature-based MVC under `src/modules/<feature>/{controllers,services,models}` plus `<feature>.module.ts`.

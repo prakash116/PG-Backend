@@ -24,5 +24,10 @@ import { SessionCookieService } from './services/session-cookie.service';
   ],
   controllers: [AuthController],
   providers: [AuthService, SessionCookieService, JwtAuthGuard],
+  // Exported so feature modules can protect their own routes with JwtAuthGuard.
+  // JwtModule and SessionCookieService are re-exported because @UseGuards builds
+  // the guard inside the consuming module's injector, so the guard's own
+  // dependencies have to resolve there too.
+  exports: [JwtAuthGuard, JwtModule, SessionCookieService],
 })
 export class AuthModule {}
