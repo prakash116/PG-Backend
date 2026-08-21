@@ -61,14 +61,75 @@ model User {
 }
 
 /// One PG per owner, created with the owner during registration.
+enum PgGender {
+  BOYS
+  GIRLS
+  CO_LIVING
+}
+
+enum Cooling {
+  AC
+  NON_AC
+  BOTH
+}
+
+enum RoomType {
+  SINGLE
+  DOUBLE
+  TRIPLE
+  PREMIUM
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 model Pg {
-  id        String   @id @default(cuid())
+  id           String             @id @default(cuid())
   /// Short, shareable code an owner can quote (e.g. PZ-4F7K2A).
-  pgCode    String   @unique
-  name      String
-  location  String
-  ownerId   String   @unique
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  pgCode       String             @unique
+  name         String
+  location     String
+  city         String?
+  description  String?
+  /// Starting monthly rent, in rupees.
+  price        Int?
+  deposit      Int?
+  gender       PgGender?
+  cooling      Cooling?
+  foodIncluded Boolean            @default(false)
+  foodDetails  String?
+  /// Matches the string list the website already models.
+  amenities    String[]           @default([])
+  images       String[]           @default([])
+  /// Set by a Super Admin only; never writable by the owner.
+  verification VerificationStatus @default(PENDING)
+  verifiedAt   DateTime?
+  /// Aggregates maintained by the ratings feature; read-only here.
+  rating       Float              @default(0)
+  reviewCount  Int                @default(0)
+  ownerId      String             @unique
+  owner        User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  roomTypes    PgRoomType[]
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+/// One row per room type per PG, carrying its own pricing and availability.
+model PgRoomType {
+  id            String   @id @default(cuid())
+  pgId          String
+  pg            Pg       @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  type          RoomType
+  roomCount     Int      @default(0)
+  pricePerBed   Int
+  /// Derived from roomCount and the beds that type holds.
+  totalBeds     Int      @default(0)
+  availableBeds Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([pgId, type])
 }

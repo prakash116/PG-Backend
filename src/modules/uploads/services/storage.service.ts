@@ -61,8 +61,8 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 /** Public path prefix; `main.ts` serves the same folder under this route. */
 export const UPLOADS_ROUTE_PREFIX = '/uploads';
 export const UPLOADS_DIRECTORY = 'uploads';
-const PROFILE_FOLDER = 'profile';
-const CLOUDINARY_FOLDER = `pzee/${PROFILE_FOLDER}`;
+/** Folders images may be filed under. Kept closed so a caller cannot write anywhere. */
+export type UploadFolder = 'profile' | 'pg';
 
 @Injectable()
 export class StorageService {
@@ -76,30 +76,36 @@ export class StorageService {
 
     this.logger.log(
       this.cloudinary
-        ? 'Profile images are stored in Cloudinary.'
-        : 'Profile images are stored on local disk. Set CLOUDINARY_* to use Cloudinary.',
+        ? 'Uploaded images are stored in Cloudinary.'
+        : 'Uploaded images are stored on local disk. Set CLOUDINARY_* to use Cloudinary.',
     );
   }
 
   /** Returns an absolute URL that the browser can render directly. */
-  async saveProfileImage(file: UploadedImageFile): Promise<string> {
+  async saveImage(
+    file: UploadedImageFile,
+    folder: UploadFolder,
+  ): Promise<string> {
     if (this.cloudinary) {
-      return this.uploadToCloudinary(file);
+      return this.uploadToCloudinary(file, folder);
     }
 
-    return this.writeToDisk(file);
+    return this.writeToDisk(file, folder);
   }
 
   /**
    * Streams multer's in-memory buffer straight to Cloudinary. Streaming avoids
    * the ~33% inflation of encoding the image as a base64 data URI first.
    */
-  private uploadToCloudinary(file: UploadedImageFile): Promise<string> {
+  private uploadToCloudinary(
+    file: UploadedImageFile,
+    folder: UploadFolder,
+  ): Promise<string> {
     const cloudinary = this.cloudinary as CloudinaryApi;
 
     return new Promise<string>((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { folder: CLOUDINARY_FOLDER, resource_type: 'image' },
+        { folder: `pzee/${folder}`, resource_type: 'image' },
         (error, result) => {
           if (error) {
             reject(error);
@@ -121,15 +127,18 @@ export class StorageService {
     });
   }
 
-  private async writeToDisk(file: UploadedImageFile): Promise<string> {
+  private async writeToDisk(
+    file: UploadedImageFile,
+    folder: UploadFolder,
+  ): Promise<string> {
     const extension = EXTENSION_BY_MIME_TYPE[file.mimetype] ?? 'bin';
     const fileName = `${randomUUID()}.${extension}`;
-    const directory = join(process.cwd(), UPLOADS_DIRECTORY, PROFILE_FOLDER);
+    const directory = join(process.cwd(), UPLOADS_DIRECTORY, folder);
 
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, fileName), file.buffer);
 
-    return `${this.publicUrl}${UPLOADS_ROUTE_PREFIX}/${PROFILE_FOLDER}/${fileName}`;
+    return `${this.publicUrl}${UPLOADS_ROUTE_PREFIX}/${folder}/${fileName}`;
   }
 
   /** Cloudinary is optional: without all three values we fall back to disk. */

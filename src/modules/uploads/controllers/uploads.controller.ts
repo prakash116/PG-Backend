@@ -26,6 +26,7 @@ import {
   MAX_IMAGE_BYTES,
   StorageService,
   UploadedImageFile,
+  UploadFolder,
 } from '../services/storage.service';
 
 /** multer ships no types, so its factory is required the way bcrypt is. */
@@ -63,6 +64,21 @@ function imageFileFilter(
   callback(null, true);
 }
 
+/** Kept in memory so the buffer streams straight to Cloudinary, never to disk. */
+const imageUpload = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
+  fileFilter: imageFileFilter,
+});
+
+const IMAGE_BODY_SCHEMA = {
+  schema: {
+    type: 'object',
+    required: ['file'],
+    properties: { file: { type: 'string', format: 'binary' } },
+  },
+};
+
 @ApiTags('Uploads')
 @Controller()
 export class UploadsController {
@@ -72,25 +88,9 @@ export class UploadsController {
 
   @Post('profile-image')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      // Kept in memory so the buffer can be streamed straight to Cloudinary
-      // without ever touching this server's disk.
-      storage: memoryStorage(),
-      limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
-      fileFilter: imageFileFilter,
-    }),
-  )
+  @UseInterceptors(imageUpload)
   @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file'],
-      properties: {
-        file: { type: 'string', format: 'binary' },
-      },
-    },
-  })
+  @ApiBody(IMAGE_BODY_SCHEMA)
   @ApiOperation({
     summary: 'Upload a profile photo',
     description:
@@ -103,15 +103,45 @@ export class UploadsController {
   @ApiBadRequestResponse({ description: 'Missing file, or not a JPEG/PNG/WebP.' })
   @ApiPayloadTooLargeResponse({ description: 'File is larger than 5 MB.' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
-  async uploadProfileImage(
+  uploadProfileImage(
     @UploadedFile() file?: UploadedImageFile,
+  ): Promise<UploadImageResponse> {
+    return this.store(file, 'profile');
+  }
+
+  @Post('pg-image')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(imageUpload)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody(IMAGE_BODY_SCHEMA)
+  @ApiOperation({
+    summary: 'Upload a PG photo',
+    description:
+      'Returns a URL to add to the PG `images` list. Accepts JPEG, PNG or WebP up to 5 MB.',
+  })
+  @ApiOkResponse({
+    description: 'Image uploaded successfully.',
+    type: UploadImageResponse,
+  })
+  @ApiBadRequestResponse({ description: 'Missing file, or not a JPEG/PNG/WebP.' })
+  @ApiPayloadTooLargeResponse({ description: 'File is larger than 5 MB.' })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
+  uploadPgImage(
+    @UploadedFile() file?: UploadedImageFile,
+  ): Promise<UploadImageResponse> {
+    return this.store(file, 'pg');
+  }
+
+  private async store(
+    file: UploadedImageFile | undefined,
+    folder: UploadFolder,
   ): Promise<UploadImageResponse> {
     if (!file) {
       throw new BadRequestException('Please choose an image to upload.');
     }
 
     try {
-      const url = await this.storageService.saveProfileImage(file);
+      const url = await this.storageService.saveImage(file, folder);
 
       return {
         success: true,
@@ -120,7 +150,7 @@ export class UploadsController {
       };
     } catch (error: unknown) {
       // The reason belongs in the logs, not in the HTTP response.
-      this.logger.error('Profile image upload failed.', error);
+      this.logger.error(`Image upload failed for folder "${folder}".`, error);
       throw new InternalServerErrorException('Internal Server Error.');
     }
   }
