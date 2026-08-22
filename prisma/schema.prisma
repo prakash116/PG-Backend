@@ -57,8 +57,9 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  pg        Pg?
-  residents Resident[]
+  pg            Pg?
+  residents     Resident[]
+  visitRequests VisitRequest[]
 }
 
 /// One PG per owner, created with the owner during registration.
@@ -117,6 +118,7 @@ model Pg {
   owner        User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   roomTypes    PgRoomType[]
   residents    Resident[]
+  visits       VisitRequest[]
   rooms        Room[]
   payments     Payment[]
   createdAt    DateTime           @default(now())
@@ -230,4 +232,32 @@ model ResidentService {
   createdAt     DateTime @default(now())
 
   @@unique([residentId, name])
+}
+
+enum VisitStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+/// A signed-in customer asking to see a PG. The owner works through these.
+model VisitRequest {
+  id            String      @id @default(cuid())
+  pgId          String
+  pg            Pg          @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  /// Booking requires an account, so the owner always gets real contact details.
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Copied at the time of booking, so the owner keeps what was sent.
+  fullName      String
+  phone         String
+  email         String
+  preferredDate DateTime?
+  message       String?
+  status        VisitStatus @default(PENDING)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([pgId, status])
 }

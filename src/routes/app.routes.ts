@@ -5,6 +5,7 @@ import { ExampleModule } from '../modules/example/example.module';
 import { HealthModule } from '../modules/health/health.module';
 import { CrmModule } from '../modules/crm/crm.module';
 import { PgModule } from '../modules/pg/pg.module';
+import { VisitsModule } from '../modules/visits/visits.module';
 import { UploadsModule } from '../modules/uploads/uploads.module';
 import { UsersModule } from '../modules/users/users.module';
 
@@ -24,6 +25,10 @@ export const appRoutes: Routes = [
   {
     path: 'v1/pg',
     module: CrmModule,
+  },
+  {
+    path: 'v1/visits',
+    module: VisitsModule,
   },
   {
     path: 'v1/uploads',

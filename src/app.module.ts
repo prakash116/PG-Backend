@@ -10,6 +10,7 @@ import { CrmModule } from './modules/crm/crm.module';
 import { PgModule } from './modules/pg/pg.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
+import { VisitsModule } from './modules/visits/visits.module';
 import { appRoutes } from './routes/app.routes';
 
 @Module({
@@ -27,6 +28,7 @@ import { appRoutes } from './routes/app.routes';
     PgModule,
     UploadsModule,
     UsersModule,
+    VisitsModule,
   ],
 })
 export class AppModule {}
