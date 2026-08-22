@@ -6,6 +6,7 @@ import appConfig from './config/app.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { ExampleModule } from './modules/example/example.module';
 import { HealthModule } from './modules/health/health.module';
+import { CrmModule } from './modules/crm/crm.module';
 import { PgModule } from './modules/pg/pg.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
@@ -21,6 +22,7 @@ import { appRoutes } from './routes/app.routes';
     RouterModule.register(appRoutes),
     AuthModule,
     ExampleModule,
+    CrmModule,
     HealthModule,
     PgModule,
     UploadsModule,

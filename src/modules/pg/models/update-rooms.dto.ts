@@ -59,15 +59,6 @@ export class RoomTypeInput {
   pricePerBed!: number;
 
   @ApiProperty({
-    example: 4,
-    description:
-      'Beds free right now. Must not exceed the beds this many rooms hold.',
-  })
-  @IsInt()
-  @Min(0)
-  availableBeds!: number;
-
-  @ApiProperty({
     example: 'https://res.cloudinary.com/.../room-1.jpg',
     description: 'First photo of the room itself.',
   })
@@ -107,11 +98,4 @@ export class UpdateRoomsDto {
   @ValidateNested({ each: true })
   @Type(() => RoomTypeInput)
   rooms!: RoomTypeInput[];
-}
-
-export class UpdateAvailabilityDto {
-  @ApiProperty({ example: 3 })
-  @IsInt()
-  @Min(0)
-  availableBeds!: number;
 }

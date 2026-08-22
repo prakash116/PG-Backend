@@ -2,8 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Param,
-  ParseEnumPipe,
   Patch,
   Put,
   Req,
@@ -15,11 +13,10 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
-  ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { RoomType, UserRole } from '../../../generated/prisma/client';
+import { UserRole } from '../../../generated/prisma/client';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import {
   AuthenticatedRequest,
@@ -28,10 +25,7 @@ import {
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { PgResponse } from '../models/pg-response.model';
 import { UpdatePgDto } from '../models/update-pg.dto';
-import {
-  UpdateAvailabilityDto,
-  UpdateRoomsDto,
-} from '../models/update-rooms.dto';
+import { UpdateRoomsDto } from '../models/update-rooms.dto';
 import { PgService } from '../services/pg.service';
 
 @ApiTags('PG')
@@ -82,15 +76,15 @@ export class PgController {
     };
   }
 
-  @Put('me/rooms')
+  @Put('me/room-types')
   @ApiOperation({
-    summary: 'Replace the room types',
+    summary: 'Replace the room types you offer',
     description:
-      'Sends the full set. A type left out is removed, which is how an owner stops offering it. Total beds are derived from the room counts.',
+      'Sends the full set: price and photos per sharing type. A type left out is removed. Actual rooms are managed separately under me/rooms.',
   })
   @ApiOkResponse({ description: 'Rooms updated successfully.', type: PgResponse })
   @ApiBadRequestResponse({
-    description: 'Duplicate type, or more available beds than the rooms hold.',
+    description: 'Duplicate room type in the payload.',
   })
   async replaceRooms(
     @Req() request: AuthenticatedRequest,
@@ -102,33 +96,6 @@ export class PgController {
       data: await this.pgService.replaceRooms(
         request.sessionUser.id,
         updateRoomsDto.rooms,
-      ),
-    };
-  }
-
-  @Patch('me/rooms/:type')
-  @ApiOperation({
-    summary: 'Update availability for one room type',
-    description: 'The edit an owner makes most often, kept to a single call.',
-  })
-  @ApiParam({ name: 'type', enum: RoomType })
-  @ApiOkResponse({
-    description: 'Availability updated successfully.',
-    type: PgResponse,
-  })
-  @ApiBadRequestResponse({ description: 'More available beds than the rooms hold.' })
-  async updateAvailability(
-    @Req() request: AuthenticatedRequest,
-    @Param('type', new ParseEnumPipe(RoomType)) type: RoomType,
-    @Body() updateAvailabilityDto: UpdateAvailabilityDto,
-  ): Promise<PgResponse> {
-    return {
-      success: true,
-      message: 'Availability updated successfully.',
-      data: await this.pgService.updateAvailability(
-        request.sessionUser.id,
-        type,
-        updateAvailabilityDto.availableBeds,
       ),
     };
   }

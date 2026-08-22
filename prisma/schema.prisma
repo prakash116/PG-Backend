@@ -57,7 +57,8 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  pg Pg?
+  pg        Pg?
+  residents Resident[]
 }
 
 /// One PG per owner, created with the owner during registration.
@@ -115,6 +116,9 @@ model Pg {
   ownerId      String             @unique
   owner        User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   roomTypes    PgRoomType[]
+  residents    Resident[]
+  rooms        Room[]
+  payments     Payment[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 }
@@ -125,11 +129,7 @@ model PgRoomType {
   pgId          String
   pg            Pg       @relation(fields: [pgId], references: [id], onDelete: Cascade)
   type          RoomType
-  roomCount     Int      @default(0)
   pricePerBed   Int
-  /// Derived from roomCount and the beds that type holds.
-  totalBeds     Int      @default(0)
-  availableBeds Int      @default(0)
   /// Four fixed photo slots per room type: two of the room itself, one of the
   /// bathroom, one of anything else. Nullable so existing rows stay valid; the
   /// API requires all four before a room type may be offered.
@@ -137,8 +137,97 @@ model PgRoomType {
   roomImage2    String?
   bathroomImage String?
   otherImage    String?
+  rooms         Room[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@unique([pgId, type])
+}
+
+enum ResidentStatus {
+  ACTIVE
+  LEFT
+}
+
+/// Someone staying in a PG. Free beds are counted from the ACTIVE rows here.
+model Resident {
+  id          String            @id @default(cuid())
+  pgId        String
+  pg          Pg                @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  /// Linked Pzee account when the guest is registered; null for a walk-in.
+  userId      String?
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  fullName    String
+  phone       String
+  address     String?
+  gender      Gender?
+  /// Reuses the type a Find-PG user already chose when registering.
+  userType    UserType?
+  /// The sharing type, kept for pricing and listing.
+  roomType    RoomType
+  /// The actual room they were given.
+  roomId      String?
+  room        Room?             @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  monthlyRent Int
+  joinedAt    DateTime          @default(now())
+  dueDate     DateTime?
+  leftAt      DateTime?
+  status      ResidentStatus    @default(ACTIVE)
+  payments    Payment[]
+  services    ResidentService[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([pgId, status])
+}
+
+/// One rent transaction. The guest's last payment date is derived from these.
+model Payment {
+  id         String    @id @default(cuid())
+  residentId String
+  resident   Resident  @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  /// Denormalised so a PG total can be summed without joining residents.
+  pgId       String
+  pg         Pg        @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  amount     Int
+  paidOn     DateTime  @default(now())
+  /// The rent month this covers, stored as the first of that month.
+  forMonth   DateTime?
+  note       String?
+  createdAt  DateTime  @default(now())
+
+  @@index([pgId, paidOn])
+}
+
+/// A physical room. Beds and occupancy are counted from these, not typed in.
+model Room {
+  id        String     @id @default(cuid())
+  pgId      String
+  pg        Pg         @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  /// What the owner calls it: 201, G-4, and so on.
+  number    String
+  type      RoomType
+  roomType  PgRoomType @relation(fields: [pgId, type], references: [pgId, type], onDelete: Cascade)
+  floor     String?
+  /// Defaults to the beds that sharing type holds, editable for odd rooms.
+  totalBeds Int
+  residents Resident[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([pgId, number])
+  @@index([pgId, type])
+}
+
+/// A service a resident takes, such as food or laundry, billed monthly.
+model ResidentService {
+  id            String   @id @default(cuid())
+  residentId    String
+  resident      Resident @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  /// Matches one of the PG amenities.
+  name          String
+  monthlyAmount Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@unique([residentId, name])
 }

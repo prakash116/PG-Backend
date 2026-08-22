@@ -77,10 +77,7 @@ const PG_SELECT = {
   roomTypes: {
     select: {
       type: true,
-      roomCount: true,
       pricePerBed: true,
-      totalBeds: true,
-      availableBeds: true,
       roomImage1: true,
       roomImage2: true,
       bathroomImage: true,
@@ -130,7 +127,13 @@ export class PgService {
 
   /** The signed-in owner's PG. The owner comes from the session, never the URL. */
   async getOwnerPg(ownerId: string): Promise<PgDetail> {
-    return this.present(await this.findByOwner(ownerId));
+    const pg = await this.findByOwner(ownerId);
+
+    return this.present(
+      pg,
+      await this.occupancyOf(pg.id),
+      await this.inventoryOf(pg.id),
+    );
   }
 
   async updateOwnerPg(ownerId: string, dto: UpdatePgDto): Promise<PgDetail> {
@@ -139,7 +142,11 @@ export class PgService {
 
     // An empty body would otherwise bump updatedAt and report a false save.
     if (Object.keys(data).length === 0) {
-      return this.present(pg);
+      return this.present(
+        pg,
+        await this.occupancyOf(pg.id),
+        await this.inventoryOf(pg.id),
+      );
     }
 
     const updated = await this.databaseService.pg.update({
@@ -162,7 +169,11 @@ export class PgService {
       void this.storageService.deleteImage(pg.logo);
     }
 
-    return this.present(updated as PgWithRooms);
+    return this.present(
+      updated as PgWithRooms,
+      await this.occupancyOf(pg.id),
+      await this.inventoryOf(pg.id),
+    );
   }
 
   /**
@@ -199,17 +210,7 @@ export class PgService {
 
     this.assertNoDuplicateTypes(rooms);
 
-    const prepared = rooms.map((room) => {
-      const totalBeds = room.roomCount * BEDS_PER_ROOM[room.type];
-
-      if (room.availableBeds > totalBeds) {
-        throw new BadRequestException(
-          `${this.describe(room.type)}: ${room.availableBeds} available beds is more than the ${totalBeds} these rooms hold.`,
-        );
-      }
-
-      return { ...room, totalBeds };
-    });
+    const prepared = rooms;
 
     await this.databaseService.$transaction(async (tx) => {
       await tx.pgRoomType.deleteMany({
@@ -223,10 +224,7 @@ export class PgService {
         await tx.pgRoomType.upsert({
           where: { pgId_type: { pgId: pg.id, type: room.type } },
           update: {
-            roomCount: room.roomCount,
             pricePerBed: room.pricePerBed,
-            totalBeds: room.totalBeds,
-            availableBeds: room.availableBeds,
             roomImage1: room.roomImage1,
             roomImage2: room.roomImage2,
             bathroomImage: room.bathroomImage,
@@ -235,10 +233,7 @@ export class PgService {
           create: {
             pgId: pg.id,
             type: room.type,
-            roomCount: room.roomCount,
             pricePerBed: room.pricePerBed,
-            totalBeds: room.totalBeds,
-            availableBeds: room.availableBeds,
             roomImage1: room.roomImage1,
             roomImage2: room.roomImage2,
             bathroomImage: room.bathroomImage,
@@ -263,7 +258,7 @@ export class PgService {
    */
   private orphanedRoomImages(
     before: PgRoomTypeResponse[],
-    after: Array<RoomTypeInput & { totalBeds: number }>,
+    after: RoomTypeInput[],
   ): string[] {
     const orphans: string[] = [];
 
@@ -285,35 +280,6 @@ export class PgService {
     return orphans;
   }
 
-  /** The one edit an owner makes often, so it has its own small endpoint. */
-  async updateAvailability(
-    ownerId: string,
-    type: RoomType,
-    availableBeds: number,
-  ): Promise<PgDetail> {
-    const pg = await this.findByOwner(ownerId);
-    const room = pg.roomTypes.find((entry) => entry.type === type);
-
-    if (!room) {
-      throw new NotFoundException(
-        `This PG does not offer ${this.describe(type)} rooms yet.`,
-      );
-    }
-
-    if (availableBeds > room.totalBeds) {
-      throw new BadRequestException(
-        `${this.describe(type)}: ${availableBeds} available beds is more than the ${room.totalBeds} these rooms hold.`,
-      );
-    }
-
-    await this.databaseService.pgRoomType.update({
-      where: { pgId_type: { pgId: pg.id, type } },
-      data: { availableBeds },
-      select: { type: true },
-    });
-
-    return this.getOwnerPg(ownerId);
-  }
 
   private async findByOwner(ownerId: string): Promise<PgWithRooms> {
     const pg = await this.databaseService.pg.findUnique({
@@ -376,12 +342,68 @@ export class PgService {
     };
   }
 
-  private present(pg: PgWithRooms): PgDetail {
+  /**
+   * How many beds each room type has taken right now, counted from the guests
+   * recorded in the CRM. Availability is derived rather than stored, so the
+   * dashboard and the public listing can never drift apart.
+   */
+  private async inventoryOf(
+    pgId: string,
+  ): Promise<Partial<Record<RoomType, { roomCount: number; totalBeds: number }>>> {
+    const rooms = await this.databaseService.room.groupBy({
+      by: ['type'],
+      _count: { _all: true },
+      _sum: { totalBeds: true },
+      where: { pgId },
+    });
+
+    return Object.fromEntries(
+      rooms.map((row) => [
+        row.type,
+        { roomCount: row._count._all, totalBeds: row._sum.totalBeds ?? 0 },
+      ]),
+    );
+  }
+
+  private async occupancyOf(pgId: string): Promise<Partial<Record<RoomType, number>>> {
+    const grouped = await this.databaseService.resident.groupBy({
+      by: ['roomType'],
+      where: { pgId, status: 'ACTIVE' },
+      _count: { _all: true },
+    });
+
+    return Object.fromEntries(
+      grouped.map((row) => [row.roomType, row._count._all]),
+    );
+  }
+
+  private present(
+    pg: PgWithRooms,
+    occupancy: Partial<Record<RoomType, number>>,
+    inventory: Partial<Record<RoomType, { roomCount: number; totalBeds: number }>>,
+  ): PgDetail {
+    const roomTypes = pg.roomTypes.map((room) => {
+      const stock = inventory[room.type] ?? { roomCount: 0, totalBeds: 0 };
+
+      return {
+        ...room,
+        roomCount: stock.roomCount,
+        totalBeds: stock.totalBeds,
+        // Never fewer than zero free beds, even if guest records outnumber the
+        // beds after rooms were removed.
+        availableBeds: Math.max(
+          0,
+          stock.totalBeds - (occupancy[room.type] ?? 0),
+        ),
+      };
+    });
+
     return {
       ...pg,
+      roomTypes,
       verified: pg.verification === 'VERIFIED',
       updatedAt: pg.updatedAt.toISOString(),
-      totals: this.totals(pg.roomTypes),
+      totals: this.totals(roomTypes),
       completion: this.completion(pg),
     };
   }
