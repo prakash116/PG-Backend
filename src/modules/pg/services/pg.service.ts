@@ -7,6 +7,7 @@ import {
   PgRoomTypeResponse,
   PgTotalsResponse,
 } from '../models/pg-response.model';
+import { StorageService } from '../../uploads/services/storage.service';
 import { UpdatePgDto } from '../models/update-pg.dto';
 import { RoomTypeInput } from '../models/update-rooms.dto';
 
@@ -33,6 +34,7 @@ const WRITABLE_FIELDS = [
   'cooling',
   'foodIncluded',
   'foodDetails',
+  'logo',
   'amenities',
   'images',
 ] as const satisfies ReadonlyArray<keyof UpdatePgDto>;
@@ -65,6 +67,7 @@ const PG_SELECT = {
   cooling: true,
   foodIncluded: true,
   foodDetails: true,
+  logo: true,
   amenities: true,
   images: true,
   verification: true,
@@ -100,6 +103,7 @@ type PgWithRooms = {
   cooling: PgDetail['cooling'];
   foodIncluded: boolean;
   foodDetails: string | null;
+  logo: string | null;
   amenities: string[];
   images: string[];
   verification: PgDetail['verification'];
@@ -109,9 +113,20 @@ type PgWithRooms = {
   roomTypes: PgRoomTypeResponse[];
 };
 
+/** The four photo slots on a room type, in the order they are shown. */
+const ROOM_IMAGE_FIELDS = [
+  'roomImage1',
+  'roomImage2',
+  'bathroomImage',
+  'otherImage',
+] as const;
+
 @Injectable()
 export class PgService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly storageService: StorageService,
+  ) {}
 
   /** The signed-in owner's PG. The owner comes from the session, never the URL. */
   async getOwnerPg(ownerId: string): Promise<PgDetail> {
@@ -132,6 +147,20 @@ export class PgService {
       data,
       select: PG_SELECT,
     });
+
+    // Photos dropped from the gallery are removed from storage too, so an
+    // account does not accumulate files nothing points at any more.
+    if (data.images !== undefined) {
+      const kept = new Set(updated.images);
+      void this.storageService.deleteImages(
+        pg.images.filter((url) => !kept.has(url)),
+      );
+    }
+
+    // A replaced or removed logo would otherwise leave its file behind.
+    if (pg.logo && pg.logo !== updated.logo) {
+      void this.storageService.deleteImage(pg.logo);
+    }
 
     return this.present(updated as PgWithRooms);
   }
@@ -219,7 +248,41 @@ export class PgService {
       }
     });
 
+    // Replaced photos, and every photo of a room type that was dropped, are
+    // no longer referenced by anything — remove them from storage.
+    void this.storageService.deleteImages(
+      this.orphanedRoomImages(pg.roomTypes, prepared),
+    );
+
     return this.getOwnerPg(ownerId);
+  }
+
+  /**
+   * Photo URLs the old room types held that the new ones no longer do. Covers
+   * both a slot being replaced and a whole room type being removed.
+   */
+  private orphanedRoomImages(
+    before: PgRoomTypeResponse[],
+    after: Array<RoomTypeInput & { totalBeds: number }>,
+  ): string[] {
+    const orphans: string[] = [];
+
+    for (const old of before) {
+      const replacement = after.find((room) => room.type === old.type);
+
+      for (const field of ROOM_IMAGE_FIELDS) {
+        const previous = old[field];
+
+        // Unchanged slots, and slots that were empty, have nothing to clean up.
+        if (!previous || previous === replacement?.[field]) {
+          continue;
+        }
+
+        orphans.push(previous);
+      }
+    }
+
+    return orphans;
   }
 
   /** The one edit an owner makes often, so it has its own small endpoint. */

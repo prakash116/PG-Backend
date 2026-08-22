@@ -35,6 +35,9 @@ function trimList({ value }: TransformFnParams): unknown {
 /** An absolute URL, or a path served by this API. */
 const IMAGE_PATTERN = /^(https?:\/\/|\/)[^\s]+$/;
 
+/** Same, but an empty string is allowed so the owner can remove the logo. */
+const LOGO_PATTERN = /^$|^(https?:\/\/|\/)[^\s]+$/;
+
 /** Rupee amounts, wide enough for a premium listing but not a typo. */
 const MAX_RUPEES = 10_000_000;
 
@@ -115,6 +118,20 @@ export class UpdatePgDto {
   @IsString()
   @MaxLength(1000)
   foodDetails?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://res.cloudinary.com/.../logo.png',
+    description:
+      'Square brand mark. Send an empty string to remove the current one.',
+  })
+  @Transform(trimString)
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  @Matches(LOGO_PATTERN, {
+    message: 'Logo must be a URL, an uploaded image path, or empty.',
+  })
+  logo?: string;
 
   @ApiPropertyOptional({
     example: ['WiFi', 'Laundry', 'Parking'],

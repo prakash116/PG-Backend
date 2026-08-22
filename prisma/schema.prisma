@@ -101,6 +101,8 @@ model Pg {
   cooling      Cooling?
   foodIncluded Boolean            @default(false)
   foodDetails  String?
+  /// Square brand mark for the PG, shown on listing cards and the dashboard.
+  logo         String?
   /// Matches the string list the website already models.
   amenities    String[]           @default([])
   images       String[]           @default([])

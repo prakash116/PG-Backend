@@ -1,7 +1,7 @@
 /** Stores uploaded images in Cloudinary, or on local disk when it is not configured. */
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { basename, join, resolve, sep } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -41,6 +41,10 @@ interface CloudinaryApi {
         result: CloudinaryUploadResult | undefined,
       ) => void,
     ): CloudinaryWriteStream;
+    destroy(
+      publicId: string,
+      options: { resource_type: 'image'; invalidate: boolean },
+    ): Promise<{ result?: string }>;
   };
 }
 
@@ -62,16 +66,20 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 export const UPLOADS_ROUTE_PREFIX = '/uploads';
 export const UPLOADS_DIRECTORY = 'uploads';
 /** Folders images may be filed under. Kept closed so a caller cannot write anywhere. */
-export type UploadFolder = 'profile' | 'pg' | 'room';
+export type UploadFolder = 'profile' | 'pg' | 'room' | 'logo';
 
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly cloudinary: CloudinaryApi | null;
   private readonly publicUrl: string;
+  /** Used to confirm a URL belongs to our Cloudinary account before deleting. */
+  private readonly cloudName: string;
 
   constructor(private readonly configService: ConfigService) {
     this.publicUrl = this.configService.getOrThrow<string>('app.publicUrl');
+    this.cloudName =
+      this.configService.get<string>('CLOUDINARY_CLOUD_NAME')?.trim() ?? '';
     this.cloudinary = this.createCloudinaryClient();
 
     this.logger.log(
@@ -125,6 +133,120 @@ export class StorageService {
 
       uploadStream.end(file.buffer);
     });
+  }
+
+  /**
+   * Removes an image this API stored. Deliberately best-effort: a failed
+   * cleanup is logged and swallowed, because losing an orphan file is a much
+   * smaller problem than failing the owner's save.
+   *
+   * A URL this API did not produce — an external one, say — is ignored, so a
+   * bad value can never reach into the Cloudinary account at large.
+   */
+  async deleteImage(url: string): Promise<void> {
+    try {
+      const publicId = this.cloudinaryPublicIdOf(url);
+
+      if (publicId) {
+        await (this.cloudinary as CloudinaryApi).uploader.destroy(publicId, {
+          resource_type: 'image',
+          invalidate: true,
+        });
+        return;
+      }
+
+      const diskPath = this.diskPathOf(url);
+
+      if (diskPath) {
+        await rm(diskPath, { force: true });
+      }
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Could not delete image ${url}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+  }
+
+  /** Deletes many images without letting one failure stop the rest. */
+  async deleteImages(urls: string[]): Promise<void> {
+    await Promise.all(urls.map((url) => this.deleteImage(url)));
+  }
+
+  /**
+   * Pulls the Cloudinary public id out of one of our own URLs, e.g.
+   * `https://res.cloudinary.com/<cloud>/image/upload/v1712/pzee/room/a.png`
+   * becomes `pzee/room/a`. Returns null for anything else.
+   */
+  private cloudinaryPublicIdOf(url: string): string | null {
+    if (!this.cloudinary || !this.cloudName) {
+      return null;
+    }
+
+    let parsed: URL;
+
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+
+    if (parsed.hostname !== 'res.cloudinary.com') {
+      return null;
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+
+    // Only ever touch assets in our own cloud.
+    if (segments[0] !== this.cloudName) {
+      return null;
+    }
+
+    const uploadIndex = segments.indexOf('upload');
+
+    if (uploadIndex === -1) {
+      return null;
+    }
+
+    let rest = segments.slice(uploadIndex + 1);
+
+    // A version prefix sits between `upload` and the public id.
+    if (rest[0] && /^v\d+$/.test(rest[0])) {
+      rest = rest.slice(1);
+    }
+
+    if (rest.length === 0) {
+      return null;
+    }
+
+    const fileName = rest[rest.length - 1].replace(/\.[^.]+$/, '');
+
+    return [...rest.slice(0, -1), fileName].join('/');
+  }
+
+  /** Resolves one of our own local-disk URLs to a path inside the uploads folder. */
+  private diskPathOf(url: string): string | null {
+    const prefix = `${this.publicUrl}${UPLOADS_ROUTE_PREFIX}/`;
+
+    if (!url.startsWith(prefix)) {
+      return null;
+    }
+
+    const [folder, fileName] = url.slice(prefix.length).split('/');
+
+    if (!folder || !fileName) {
+      return null;
+    }
+
+    const root = resolve(process.cwd(), UPLOADS_DIRECTORY);
+    const candidate = resolve(root, basename(folder), basename(fileName));
+
+    // `basename` alone is not enough: it leaves '..' intact, so a crafted URL
+    // could still climb out. Resolve first, then confirm containment.
+    if (!candidate.startsWith(root + sep)) {
+      return null;
+    }
+
+    return candidate;
   }
 
   private async writeToDisk(

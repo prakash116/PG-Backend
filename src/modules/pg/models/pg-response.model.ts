@@ -100,6 +100,13 @@ export class PgDetail {
   @ApiProperty({ example: 'Three meals a day.', nullable: true, type: String })
   foodDetails!: string | null;
 
+  @ApiProperty({
+    example: 'https://res.cloudinary.com/.../logo.png',
+    nullable: true,
+    type: String,
+  })
+  logo!: string | null;
+
   @ApiProperty({ example: ['WiFi', 'Laundry'], type: [String] })
   amenities!: string[];
 
