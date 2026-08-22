@@ -15,7 +15,7 @@ never in the repository.
 | --- | --- | --- |
 | `NODE_ENV` | `production` | Turns on the production defaults below. |
 | `PORT` | *(set by Render)* | The app reads it. Do not hardcode. |
-| `HOST` | *(leave unset)* | Defaults to `0.0.0.0` in production, which a container needs. |
+| `HOST` | *(leave unset)* | Defaults to `0.0.0.0`. Setting it to `127.0.0.1` makes the app invisible to the platform. |
 | `PUBLIC_BASE_URL` | `https://api.pzee.in` | Used for any URL the API hands out. |
 | `CORS_ORIGINS` | `https://pzee.in,https://www.pzee.in` | Exact browser origins. |
 | `AUTH_COOKIE_NAME` | `pzee_session` | |
@@ -63,7 +63,24 @@ deploy.
 Health check path: `/api/health`. `/api/health/database` also proves the
 database connection, which is the more useful of the two after a deploy.
 
-## 3. DNS
+## 3. Render service settings
+
+Render's defaults do **not** work for this app. Set both explicitly:
+
+| Setting | Value |
+| --- | --- |
+| Build Command | `npm ci --include=dev && npx prisma migrate deploy && npm run build` |
+| Start Command | `npm run start:prod` |
+
+`npm start` runs `nest start`, which is the development command: it recompiles
+from source, needs the dev dependencies at runtime, and is not what should serve
+traffic. `start:prod` runs the compiled `dist/main` directly.
+
+If a deploy hangs on **"No open ports detected"**, the app is listening
+somewhere Render cannot reach. Check that `HOST` is unset — a stray
+`HOST=127.0.0.1` copied from a local `.env` binds loopback only.
+
+## 4. DNS
 
 | Record | Name | Points to |
 | --- | --- | --- |
@@ -73,7 +90,7 @@ Add `api.pzee.in` as a custom domain on the service so Render issues the
 certificate. The session cookie is `Secure`, so **nothing works over plain
 HTTP** — that is deliberate.
 
-## 4. The website
+## 5. The website
 
 Set this on the frontend build, or it will keep calling localhost:
 

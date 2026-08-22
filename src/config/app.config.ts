@@ -32,11 +32,15 @@ export default registerAs('app', () => {
   const environment = process.env.NODE_ENV?.trim() || 'development';
   const isProduction = environment === 'production';
 
-  // A container publishes on all interfaces; 127.0.0.1 would accept nothing.
+  // Bind every interface unless told otherwise. A hosting platform routes to
+  // the container's external address, so listening on 127.0.0.1 makes the app
+  // invisible — Render reports "No open ports detected" and the deploy hangs.
+  // Local development sets HOST=127.0.0.1 in .env to stay off the LAN, which
+  // means a missing NODE_ENV can never strand a deploy.
+  //
   // `??` is wrong here: a variable left blank in a .env file or a hosting
   // dashboard arrives as an empty string, which `??` would keep.
-  const host =
-    process.env.HOST?.trim() || (isProduction ? '0.0.0.0' : '127.0.0.1');
+  const host = process.env.HOST?.trim() || '0.0.0.0';
   const port = Number.parseInt(process.env.PORT?.trim() || '3000', 10);
 
   return {

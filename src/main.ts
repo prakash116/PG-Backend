@@ -60,6 +60,14 @@ async function bootstrap(): Promise<void> {
     );
   }
 
+  // NODE_ENV can be missing on a hosting platform, which would quietly take the
+  // permissive path above. Say so loudly rather than letting it pass unnoticed.
+  if (corsOrigins.length === 0) {
+    logger.warn(
+      'CORS_ORIGINS is not set: every origin is being reflected. Fine locally, unsafe anywhere public — set CORS_ORIGINS and NODE_ENV=production.',
+    );
+  }
+
   app.enableCors({
     origin: corsOrigins.length > 0 ? corsOrigins : true,
     credentials: true,
