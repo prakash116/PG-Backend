@@ -42,6 +42,7 @@ import {
   UpdateResidentDto,
 } from '../models/resident.dto';
 import { CrmService } from '../services/crm.service';
+import { AnalyticsService } from '../services/analytics.service';
 import { PaymentsService } from '../services/payments.service';
 
 @ApiTags('CRM')
@@ -56,6 +57,7 @@ export class CrmController {
   constructor(
     private readonly crmService: CrmService,
     private readonly paymentsService: PaymentsService,
+    private readonly analyticsService: AnalyticsService,
   ) {}
 
   @Get('me/residents')
@@ -187,6 +189,21 @@ export class CrmController {
         id,
         createPaymentDto,
       ),
+    };
+  }
+
+  @Get('me/analytics')
+  @ApiOperation({
+    summary: 'Occupancy, earnings and enquiry trends',
+    description:
+      'Built from the guests, payments and visit requests already recorded. Website traffic is not included, because nothing tracks it.',
+  })
+  @ApiOkResponse({ description: 'Analytics retrieved successfully.' })
+  async analytics(@Req() request: AuthenticatedRequest) {
+    return {
+      success: true,
+      message: 'Analytics retrieved successfully.',
+      data: await this.analyticsService.summary(request.sessionUser.id),
     };
   }
 
