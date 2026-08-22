@@ -1,0 +1,58 @@
+# Render blueprint for the Pzee API.
+#
+# Create the service from this file (Render → New → Blueprint), then fill in the
+# values marked `sync: false` in the dashboard. Those are secrets and never
+# belong in the repository.
+services:
+  - type: web
+    name: pzee-api
+    runtime: node
+    plan: starter
+    region: singapore # Closest to the Supabase ap-southeast database.
+    healthCheckPath: /api/health
+    # `migrate deploy` applies pending migrations only; it never resets data.
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Render sets PORT itself and the app reads it. HOST is left unset so the
+      # app binds 0.0.0.0, which is what a container needs.
+      - key: PUBLIC_BASE_URL
+        value: https://api.pzee.in
+
+      # Exact browser origins. Bare hostnames and trailing slashes are
+      # normalised by the app, but these are already in the right shape.
+      - key: CORS_ORIGINS
+        value: https://pzee.in,https://www.pzee.in
+
+      # The site and the API are on different subdomains, so the session cookie
+      # has to be cross-site: Secure + SameSite=None, shared on .pzee.in.
+      - key: AUTH_COOKIE_NAME
+        value: pzee_session
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: AUTH_COOKIE_SAME_SITE
+        value: none
+      - key: AUTH_COOKIE_DOMAIN
+        value: .pzee.in
+
+      # Leave unset to keep the API docs private. Set to "true" only while you
+      # need them.
+      - key: ENABLE_SWAGGER
+        value: "false"
+
+      # --- Set these in the dashboard, not here ---
+      - key: DATABASE_URL # Supabase pooled connection (port 6543)
+        sync: false
+      - key: DIRECT_URL # Supabase direct connection (port 5432), for migrations
+        sync: false
+      - key: JWT_SECRET # A fresh 48-byte random string, not the development one
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
