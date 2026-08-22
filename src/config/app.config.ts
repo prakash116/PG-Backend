@@ -23,9 +23,26 @@ function parseOrigins(value: string | undefined): string[] {
     .filter((origin, index, all) => all.indexOf(origin) === index);
 }
 
-function parseSameSite(value: string | undefined): SameSite {
+function parseSameSite(
+  value: string | undefined,
+  fallback: SameSite,
+): SameSite {
   const sameSite = value?.trim().toLowerCase();
-  return sameSite === 'strict' || sameSite === 'none' ? sameSite : 'lax';
+
+  if (sameSite === 'strict' || sameSite === 'none' || sameSite === 'lax') {
+    return sameSite;
+  }
+
+  return fallback;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  const flag = value?.trim().toLowerCase();
+
+  if (flag === 'true') return true;
+  if (flag === 'false') return false;
+
+  return fallback;
 }
 
 export default registerAs('app', () => {
@@ -43,6 +60,8 @@ export default registerAs('app', () => {
   const host = process.env.HOST?.trim() || '0.0.0.0';
   const port = Number.parseInt(process.env.PORT?.trim() || '3000', 10);
 
+  const corsOrigins = parseOrigins(process.env.CORS_ORIGINS);
+
   return {
     environment,
     isProduction,
@@ -55,20 +74,48 @@ export default registerAs('app', () => {
     publicUrl: (
       process.env.PUBLIC_BASE_URL?.trim() || `http://${host}:${port}`
     ).replace(/\/+$/, ''),
-    corsOrigins: parseOrigins(process.env.CORS_ORIGINS),
+    corsOrigins,
     /** Swagger is opt-in outside development, so the API surface stays private. */
     enableSwagger: isProduction
       ? process.env.ENABLE_SWAGGER === 'true'
       : true,
-    session: {
-      maxAgeDays: SESSION_MAX_AGE_DAYS,
-      maxAgeMs: SESSION_MAX_AGE_DAYS * MILLISECONDS_PER_DAY,
-      cookieName: process.env.AUTH_COOKIE_NAME?.trim() || 'pzee_session',
-      // The site and the API sit on different subdomains in production, so the
-      // cookie needs SameSite=None over HTTPS there.
-      cookieSecure: process.env.AUTH_COOKIE_SECURE === 'true',
-      cookieSameSite: parseSameSite(process.env.AUTH_COOKIE_SAME_SITE),
-      cookieDomain: process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined,
-    },
+    session: sessionConfig(isProduction, corsOrigins),
   };
 });
+
+/**
+ * A session cookie only reaches the API if its attributes match how the site is
+ * actually served. A browser will not send a `SameSite=Lax` cookie on a request
+ * from `pzee.in` to an API on another domain, so the deployed dashboard would
+ * sign in and immediately report "Authentication required".
+ *
+ * The right attributes are therefore derived rather than left to be remembered:
+ * an https origin in `CORS_ORIGINS` means real browsers are talking to this API
+ * cross-site over TLS, which is exactly when `SameSite=None; Secure` is needed.
+ * Local development keeps `Lax` and no `Secure`, because there is no https
+ * origin configured. Either value can still be set explicitly.
+ */
+function sessionConfig(isProduction: boolean, corsOrigins: string[]) {
+  const servesHttpsSite = corsOrigins.some((origin) =>
+    origin.startsWith('https://'),
+  );
+  const isCrossSite = isProduction || servesHttpsSite;
+
+  const sameSite = parseSameSite(
+    process.env.AUTH_COOKIE_SAME_SITE,
+    isCrossSite ? 'none' : 'lax',
+  );
+
+  return {
+    maxAgeDays: SESSION_MAX_AGE_DAYS,
+    maxAgeMs: SESSION_MAX_AGE_DAYS * MILLISECONDS_PER_DAY,
+    cookieName: process.env.AUTH_COOKIE_NAME?.trim() || 'pzee_session',
+    // Browsers reject `SameSite=None` unless the cookie is also `Secure`, so
+    // that combination is never allowed to be configured into existence.
+    cookieSecure:
+      sameSite === 'none' ||
+      parseBoolean(process.env.AUTH_COOKIE_SECURE, isCrossSite),
+    cookieSameSite: sameSite,
+    cookieDomain: process.env.AUTH_COOKIE_DOMAIN?.trim() || undefined,
+  };
+}
