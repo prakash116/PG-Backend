@@ -42,6 +42,7 @@ import {
   UpdateResidentDto,
 } from '../models/resident.dto';
 import { CrmService } from '../services/crm.service';
+import { PaymentsService } from '../services/payments.service';
 
 @ApiTags('CRM')
 @Controller()
@@ -52,7 +53,10 @@ import { CrmService } from '../services/crm.service';
 @ApiForbiddenResponse({ description: 'Requires the PG Owner role.' })
 @ApiNotFoundResponse({ description: 'No PG is linked to this account.' })
 export class CrmController {
-  constructor(private readonly crmService: CrmService) {}
+  constructor(
+    private readonly crmService: CrmService,
+    private readonly paymentsService: PaymentsService,
+  ) {}
 
   @Get('me/residents')
   @ApiOperation({
@@ -183,6 +187,25 @@ export class CrmController {
         id,
         createPaymentDto,
       ),
+    };
+  }
+
+  @Get('me/payments/summary')
+  @ApiOperation({
+    summary: 'Total earnings, dues and recent payments',
+    description:
+      'Earnings are every payment ever recorded. Collected covers the given period, defaulting to this month.',
+  })
+  @ApiOkResponse({ description: 'Summary retrieved successfully.' })
+  @ApiBadRequestResponse({ description: 'The start date is after the end date.' })
+  async payments(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: CrmSummaryQuery,
+  ) {
+    return {
+      success: true,
+      message: 'Summary retrieved successfully.',
+      data: await this.paymentsService.summary(request.sessionUser.id, query),
     };
   }
 
