@@ -1,7 +1,8 @@
 # Deploying the Pzee API
 
-Target: **Render**, served from **https://api.pzee.in**, with the website on
-`pzee.in` and `www.pzee.in`.
+Target: **Render**. The API answers on **https://pg-backend-pozw.onrender.com**
+today; the website is on `pzee.in` and `www.pzee.in` (Vercel). Moving the API to
+`api.pzee.in` is the one outstanding improvement — see section 4.
 
 Railway works the same way — the build and start commands below are identical,
 only the config file differs.
@@ -16,12 +17,12 @@ never in the repository.
 | `NODE_ENV` | `production` | Turns on the production defaults below. |
 | `PORT` | *(set by Render)* | The app reads it. Do not hardcode. |
 | `HOST` | *(leave unset)* | Defaults to `0.0.0.0`. Setting it to `127.0.0.1` makes the app invisible to the platform. |
-| `PUBLIC_BASE_URL` | `https://api.pzee.in` | Used for any URL the API hands out. |
+| `PUBLIC_BASE_URL` | `https://pg-backend-pozw.onrender.com` | Must be the host the service actually answers on: every URL the API hands out is built from it. |
 | `CORS_ORIGINS` | `https://pzee.in,https://www.pzee.in` | Exact browser origins. |
 | `AUTH_COOKIE_NAME` | `pzee_session` | |
-| `AUTH_COOKIE_SECURE` | `true` | Required for a cross-site cookie. |
-| `AUTH_COOKIE_SAME_SITE` | `none` | The site and API are different subdomains. |
-| `AUTH_COOKIE_DOMAIN` | `.pzee.in` | Lets `www.pzee.in` send a cookie set by `api.pzee.in`. |
+| `AUTH_COOKIE_SECURE` | **leave unset** | Decided per request — see "The session cookie" below. |
+| `AUTH_COOKIE_SAME_SITE` | **leave unset** | Decided per request. |
+| `AUTH_COOKIE_DOMAIN` | **leave unset** | Set to `.pzee.in` *only* once the API answers on a `*.pzee.in` host. |
 | `ENABLE_SWAGGER` | unset, or `false` | `true` publishes `/api/docs`. |
 | `DATABASE_URL` | **secret** | Supabase pooled connection, port 6543. |
 | `DIRECT_URL` | **secret** | Supabase direct connection, port 5432. Migrations use this. |
@@ -80,23 +81,60 @@ If a deploy hangs on **"No open ports detected"**, the app is listening
 somewhere Render cannot reach. Check that `HOST` is unset — a stray
 `HOST=127.0.0.1` copied from a local `.env` binds loopback only.
 
-## 4. DNS
+## 4. DNS — moving the API onto `api.pzee.in`
+
+Not required, but it is the difference between a session that works in every
+browser and one that works only where third-party cookies are allowed. While the
+API is on `onrender.com` it is a *different site* from `pzee.in`, so the session
+cookie is third-party: Safari, Firefox and Brave block it by default, and Chrome
+blocks it in Incognito.
 
 | Record | Name | Points to |
 | --- | --- | --- |
 | CNAME | `api` | The Render service hostname |
 
 Add `api.pzee.in` as a custom domain on the service so Render issues the
-certificate. The session cookie is `Secure`, so **nothing works over plain
-HTTP** — that is deliberate.
+certificate, then:
+
+1. `PUBLIC_BASE_URL=https://api.pzee.in`
+2. `AUTH_COOKIE_DOMAIN=.pzee.in` — safe only now, not before
+3. `NEXT_PUBLIC_API_BASE_URL=https://api.pzee.in/api` on the website build
+
+The cookie becomes first-party and the app relaxes itself back to `SameSite=Lax`
+with no further changes. The cookie is `Secure` whenever it crosses sites, so
+**nothing works over plain HTTP** — that is deliberate.
+
+Routing the API through the website instead (a Vercel rewrite) is **not** a
+substitute: Vercel caps a proxied request body at 4.5 MB while image uploads are
+allowed up to 5 MB, so the largest uploads would fail.
 
 ## 5. The website
 
 Set this on the frontend build, or it will keep calling localhost:
 
 ```
-NEXT_PUBLIC_API_BASE_URL=https://api.pzee.in/api
+NEXT_PUBLIC_API_BASE_URL=https://pg-backend-pozw.onrender.com/api
 ```
+
+## The session cookie
+
+Its attributes are settled **per request**, from that request's own `Host` and
+`Origin`, not from configuration read at boot:
+
+- **Cross-site request** (`pzee.in` → `onrender.com`) → `SameSite=None; Secure`,
+  because a `Lax` cookie is never sent back and no configuration could make it
+  work.
+- **Same-site request** (`www.pzee.in` → `api.pzee.in`, or localhost in
+  development) → `SameSite=Lax`, the stricter and safer default.
+- **`AUTH_COOKIE_DOMAIN`** is applied only when the responding host is inside
+  that domain, and ignored otherwise — a mismatched `Domain` makes the browser
+  discard the cookie silently.
+
+`AUTH_COOKIE_SAME_SITE` and `AUTH_COOKIE_SECURE` still work, but they cannot
+force a combination a browser would reject. This is deliberate: the live API was
+once deployed carrying a developer's local `AUTH_COOKIE_SAME_SITE=lax`, and the
+only symptom was a dashboard that signed in and immediately reported
+"Authentication required".
 
 ## What is enforced in production
 
@@ -131,9 +169,17 @@ curl -I -H "Origin: https://evil.example.com" https://api.pzee.in/api/health
 curl -I -H "Origin: https://www.pzee.in" https://api.pzee.in/api/health
 ```
 
-Then sign in on the live site and confirm the session survives a refresh. If it
-does not, the cookie settings are the first place to look: all four
-`AUTH_COOKIE_*` values have to match the table above.
+Then sign in on the live site and confirm the session survives a refresh. The one
+header that decides it:
+
+```bash
+curl -s -i -X POST https://pg-backend-pozw.onrender.com/api/v1/auth/login   -H 'Content-Type: application/json' -H 'Origin: https://www.pzee.in'   -d '{"identifier":"owner@pzee.in","password":"..."}' | grep -i set-cookie
+```
+
+While the API and the site are on different domains it must come back
+`SameSite=None; Secure`. `SameSite=Lax` there means the browser accepts the
+cookie at login and then refuses to send it with the next request: login
+succeeds, and every call after it answers "Authentication required".
 
 ## Seeding
 

@@ -23,24 +23,31 @@ services:
 
       # Render sets PORT itself and the app reads it. HOST is left unset so the
       # app binds 0.0.0.0, which is what a container needs.
+      #
+      # PUBLIC_BASE_URL must be the host this service actually answers on, since
+      # any URL the API hands out is built from it. Change it the day the custom
+      # domain exists, not before.
       - key: PUBLIC_BASE_URL
-        value: https://api.pzee.in
+        value: https://pg-backend-pozw.onrender.com
 
       # Exact browser origins. Bare hostnames and trailing slashes are
       # normalised by the app, but these are already in the right shape.
       - key: CORS_ORIGINS
         value: https://pzee.in,https://www.pzee.in
 
-      # The site and the API are on different subdomains, so the session cookie
-      # has to be cross-site: Secure + SameSite=None, shared on .pzee.in.
       - key: AUTH_COOKIE_NAME
         value: pzee_session
-      - key: AUTH_COOKIE_SECURE
-        value: "true"
-      - key: AUTH_COOKIE_SAME_SITE
-        value: none
-      - key: AUTH_COOKIE_DOMAIN
-        value: .pzee.in
+
+      # AUTH_COOKIE_SECURE and AUTH_COOKIE_SAME_SITE are deliberately absent.
+      # The app settles them per request, from the request's own Host and
+      # Origin, because only the request knows whether it crossed sites. Setting
+      # them here — or pasting a local .env into the dashboard — is how the
+      # deployed site ended up issuing a Lax cookie no browser would send back,
+      # which logs in successfully and then answers "Authentication required".
+      #
+      # AUTH_COOKIE_DOMAIN is likewise absent, and must stay absent until the
+      # API answers on a *.pzee.in host. A Domain the responding host does not
+      # belong to makes the browser discard the cookie outright.
 
       # Leave unset to keep the API docs private. Set to "true" only while you
       # need them.

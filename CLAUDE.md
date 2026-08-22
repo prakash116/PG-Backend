@@ -52,6 +52,19 @@ diff <(grep -oE '^[A-Z_]+' .env.example | sort -u) <(grep -oE '^[A-Z_]+' .env | 
 
 Note: `getOrThrow` rejects only `undefined`, so `false` and `0` are valid values.
 
+### ...and never paste `.env` into a hosting dashboard
+
+`.env` describes **this machine**: `HOST=127.0.0.1`, `AUTH_COOKIE_SECURE=false`,
+`AUTH_COOKIE_SAME_SITE=lax`. Every one of those is wrong in production, and none
+of them fails loudly — the app boots, login returns 200, and the next request is
+a 401. Copy variables into a hosting dashboard one at a time, from
+`docs/DEPLOYMENT.md`, never wholesale.
+
+Config that can only ever be wrong should not be obeyed. Where the request
+itself knows better — as with the session cookie, which reads its own `Host` and
+`Origin` — derive the value and let the environment override only what it could
+plausibly get right.
+
 ## Rule 3: the human runs the servers, not the agent
 
 **The developer starts and stops the backend and the website themselves.** Do not
