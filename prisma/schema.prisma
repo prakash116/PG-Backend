@@ -128,6 +128,13 @@ model PgRoomType {
   /// Derived from roomCount and the beds that type holds.
   totalBeds     Int      @default(0)
   availableBeds Int      @default(0)
+  /// Four fixed photo slots per room type: two of the room itself, one of the
+  /// bathroom, one of anything else. Nullable so existing rows stay valid; the
+  /// API requires all four before a room type may be offered.
+  roomImage1    String?
+  roomImage2    String?
+  bathroomImage String?
+  otherImage    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

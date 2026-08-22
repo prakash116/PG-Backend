@@ -78,6 +78,10 @@ const PG_SELECT = {
       pricePerBed: true,
       totalBeds: true,
       availableBeds: true,
+      roomImage1: true,
+      roomImage2: true,
+      bathroomImage: true,
+      otherImage: true,
     },
     orderBy: { type: 'asc' },
   },
@@ -194,6 +198,10 @@ export class PgService {
             pricePerBed: room.pricePerBed,
             totalBeds: room.totalBeds,
             availableBeds: room.availableBeds,
+            roomImage1: room.roomImage1,
+            roomImage2: room.roomImage2,
+            bathroomImage: room.bathroomImage,
+            otherImage: room.otherImage,
           },
           create: {
             pgId: pg.id,
@@ -202,6 +210,10 @@ export class PgService {
             pricePerBed: room.pricePerBed,
             totalBeds: room.totalBeds,
             availableBeds: room.availableBeds,
+            roomImage1: room.roomImage1,
+            roomImage2: room.roomImage2,
+            bathroomImage: room.bathroomImage,
+            otherImage: room.otherImage,
           },
         });
       }

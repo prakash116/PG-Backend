@@ -21,6 +21,18 @@ export class PgRoomTypeResponse {
 
   @ApiProperty({ example: 4 })
   availableBeds!: number;
+
+  @ApiProperty({ example: 'https://res.cloudinary.com/.../room-1.jpg', nullable: true, type: String })
+  roomImage1!: string | null;
+
+  @ApiProperty({ example: 'https://res.cloudinary.com/.../room-2.jpg', nullable: true, type: String })
+  roomImage2!: string | null;
+
+  @ApiProperty({ example: 'https://res.cloudinary.com/.../bathroom.jpg', nullable: true, type: String })
+  bathroomImage!: string | null;
+
+  @ApiProperty({ example: 'https://res.cloudinary.com/.../kitchen.jpg', nullable: true, type: String })
+  otherImage!: string | null;
 }
 
 /** Rolled up so the dashboard and listing cards agree on one set of numbers. */

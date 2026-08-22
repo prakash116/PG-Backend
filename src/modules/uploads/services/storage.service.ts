@@ -62,7 +62,7 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 export const UPLOADS_ROUTE_PREFIX = '/uploads';
 export const UPLOADS_DIRECTORY = 'uploads';
 /** Folders images may be filed under. Kept closed so a caller cannot write anywhere. */
-export type UploadFolder = 'profile' | 'pg';
+export type UploadFolder = 'profile' | 'pg' | 'room';
 
 @Injectable()
 export class StorageService {

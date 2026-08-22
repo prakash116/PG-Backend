@@ -132,6 +132,29 @@ export class UploadsController {
     return this.store(file, 'pg');
   }
 
+  @Post('room-image')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(imageUpload)
+  @ApiConsumes('multipart/form-data')
+  @ApiBody(IMAGE_BODY_SCHEMA)
+  @ApiOperation({
+    summary: 'Upload a room type photo',
+    description:
+      'Returns a URL for one of the four photo slots on a room type. Accepts JPEG, PNG or WebP up to 5 MB.',
+  })
+  @ApiOkResponse({
+    description: 'Image uploaded successfully.',
+    type: UploadImageResponse,
+  })
+  @ApiBadRequestResponse({ description: 'Missing file, or not a JPEG/PNG/WebP.' })
+  @ApiPayloadTooLargeResponse({ description: 'File is larger than 5 MB.' })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
+  uploadRoomImage(
+    @UploadedFile() file?: UploadedImageFile,
+  ): Promise<UploadImageResponse> {
+    return this.store(file, 'room');
+  }
+
   private async store(
     file: UploadedImageFile | undefined,
     folder: UploadFolder,
