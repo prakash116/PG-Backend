@@ -5,6 +5,8 @@
   "description": "Pzee backend API",
   "scripts": {
     "build": "nest build",
+    "postinstall": "prisma generate",
+    "prebuild": "prisma generate",
     "format": "prettier --write \"src/**/*.ts\" \"*.json\" \"*.md\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

@@ -40,11 +40,21 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 ```bash
 # Build
-npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+npm ci --include=dev && npx prisma migrate deploy && npm run build
 
 # Start
 npm run start:prod
 ```
+
+Two details that will break the build if changed:
+
+- **`--include=dev`** is required. `NODE_ENV=production` makes npm skip
+  devDependencies, and the build needs `prisma`, `@nestjs/cli` and
+  `typescript`.
+- **The Prisma client is generated automatically** by the `postinstall` and
+  `prebuild` scripts. `src/generated/prisma/` is gitignored, so a fresh
+  checkout has none; without generation every file that imports it fails to
+  compile.
 
 `prisma migrate deploy` applies pending migrations and nothing else. It never
 resets or drops data, which is why it, and not `migrate dev`, belongs in a

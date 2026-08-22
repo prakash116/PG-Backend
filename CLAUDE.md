@@ -14,6 +14,12 @@ Run `npx prisma generate` **before** typechecking, building, or debugging whenev
 - you pulled/merged, switched branches, or cloned fresh,
 - `npm install` was run.
 
+Generation is wired to `postinstall` and `prebuild` in package.json, so a
+fresh checkout — a CI runner or a hosting platform — always builds a client.
+Do not remove those scripts: `src/generated/prisma/` is gitignored, so without
+them every file that imports it fails to compile, which is exactly how a Render
+deploy failed with forty errors that all traced back to one missing module.
+
 Symptoms that mean "stale client, not broken code" — regenerate first, do **not**
 edit source to work around them:
 
