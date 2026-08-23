@@ -139,6 +139,24 @@ startup so the first visitor does not pay for it.
 Raise `DB_POOL_MAX` only alongside Supabase's own pooler limit; every instance
 of the service holds its own pool.
 
+## Account deletion
+
+Deleting an account does not remove the row. It sets `isActive = false` and
+stamps `deletedAt`; a job inside the app removes the row **30 days later**.
+
+That delay is not politeness. `VisitRequest.userId` cascades, so a hard delete
+takes every visit request the person ever booked out of the PG owner's Customers
+page. The grace period keeps that history for a month and gives a Super Admin a
+window to undo a mistake with `POST /v1/users/:id/restore`.
+
+PG owner accounts are refused outright: `Pg.ownerId` cascades, so removing an
+owner would delete the PG together with its rooms, residents and every payment
+recorded against them.
+
+The purge runs at 03:00 daily, in-process, via `@nestjs/schedule`. Every extra
+instance of the service runs its own copy — harmless, since deleting an
+already-deleted row is a no-op, but worth knowing before scaling out.
+
 ## The session cookie
 
 Its attributes are settled **per request**, from that request's own `Host` and

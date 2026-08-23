@@ -11,6 +11,12 @@ export class UserListItemResponse {
   @ApiProperty({ example: 'Doe', nullable: true, type: String })
   lastName!: string | null;
 
+  @ApiProperty({ example: 'user@pzee.in' })
+  email!: string;
+
+  @ApiProperty({ example: '9000000003' })
+  phone!: string;
+
   @ApiProperty({ enum: UserRole, example: UserRole.USER })
   role!: UserRole;
 
@@ -33,6 +39,18 @@ export class UserListItemResponse {
 
   @ApiProperty({ example: 'New Delhi' })
   city!: string | null;
+
+  @ApiProperty({ example: true })
+  isActive!: boolean;
+
+  @ApiProperty({
+    example: null,
+    format: 'date-time',
+    nullable: true,
+    type: String,
+    description: 'Set when the account is closed and awaiting purge.',
+  })
+  deletedAt!: string | null;
 
   @ApiProperty({ example: '2026-08-05T10:30:00.000Z', format: 'date-time' })
   createdAt!: string;

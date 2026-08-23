@@ -2,6 +2,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, RouterModule } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import appConfig from './config/app.config';
 import { AuthModule } from './modules/auth/auth.module';
@@ -27,6 +28,9 @@ import { appRoutes } from './routes/app.routes';
       { name: 'short', ttl: 1000, limit: 10 },
       { name: 'medium', ttl: 60_000, limit: 120 },
     ]),
+    // Drives the nightly purge of accounts whose 30-day grace period has run
+    // out. Nothing else is scheduled.
+    ScheduleModule.forRoot(),
     RouterModule.register(appRoutes),
     AuthModule,
     ExampleModule,

@@ -13,11 +13,17 @@ export class UsersService {
         id: true,
         firstName: true,
         lastName: true,
+        email: true,
+        phone: true,
         role: true,
         userType: true,
         profileImage: true,
         state: true,
         city: true,
+        // The admin page has to tell a live account from a closed one to know
+        // whether to offer Delete or Restore.
+        isActive: true,
+        deletedAt: true,
         createdAt: true,
       },
     });
@@ -27,6 +33,7 @@ export class UsersService {
       message: 'Users retrieved successfully.',
       data: users.map((user) => ({
         ...user,
+        deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
         createdAt: user.createdAt.toISOString(),
       })),
     };

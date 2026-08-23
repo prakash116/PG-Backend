@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBody,
   ApiConflictResponse,
@@ -8,13 +19,20 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Response } from 'express';
 import {
   AuthenticatedRequest,
   JwtAuthGuard,
 } from '../../auth/guards/jwt-auth.guard';
+import { SessionCookieService } from '../../auth/services/session-cookie.service';
+import { CloseAccountResponse } from '../models/close-account-response.model';
 import { ProfileResponse } from '../models/profile-response.model';
 import { StayResponse } from '../models/stay-response.model';
 import { UpdateProfileDto } from '../models/update-profile.dto';
+import {
+  ACCOUNT_GRACE_DAYS,
+  AccountLifecycleService,
+} from '../services/account-lifecycle.service';
 import { MeService } from '../services/me.service';
 
 /**
@@ -27,7 +45,11 @@ import { MeService } from '../services/me.service';
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class MeController {
-  constructor(private readonly meService: MeService) {}
+  constructor(
+    private readonly meService: MeService,
+    private readonly accountLifecycleService: AccountLifecycleService,
+    private readonly sessionCookieService: SessionCookieService,
+  ) {}
 
   @Get('me')
   @ApiOperation({
@@ -78,6 +100,36 @@ export class MeController {
         request.sessionUser.id,
         updateProfileDto,
       ),
+    };
+  }
+
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete your own account',
+    description: `Closes the account at once: you are signed out and cannot sign back in. The record is kept for ${ACCOUNT_GRACE_DAYS} days so a Super Admin can restore it, then removed for good. A PG owner is refused, because removing the owner would take the PG and its payment history with it.`,
+  })
+  @ApiOkResponse({ description: 'Account closed.', type: CloseAccountResponse })
+  @ApiUnauthorizedResponse({ description: 'Session is missing or expired.' })
+  @ApiConflictResponse({
+    description: 'This account cannot be deleted here.',
+  })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
+  async deleteOwnAccount(
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<CloseAccountResponse> {
+    const closed = await this.accountLifecycleService.close(
+      request.sessionUser.id,
+    );
+
+    // Only after the close succeeds: a refusal must leave them signed in.
+    this.sessionCookieService.clear(response);
+
+    return {
+      success: true,
+      message: `Account closed. You have ${closed.graceDays} days to ask us to restore it.`,
+      data: closed,
     };
   }
 
