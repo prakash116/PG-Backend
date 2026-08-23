@@ -36,6 +36,12 @@ function parseSameSite(
   return fallback;
 }
 
+function parseInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value?.trim() || '', 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   const flag = value?.trim().toLowerCase();
 
@@ -80,8 +86,39 @@ export default registerAs('app', () => {
       ? process.env.ENABLE_SWAGGER === 'true'
       : true,
     session: sessionConfig(isProduction, corsOrigins),
+    database: databaseConfig(),
   };
 });
+
+/**
+ * Connection pool settings for the Supabase pooler.
+ *
+ * These are not arbitrary. Opening a connection to the pooler was measured from
+ * this project at 2.2s–12.9s, while reusing an already-open one answers in under
+ * a second — the database is in ap-southeast-2 and the TLS and pooler handshake
+ * dominate. Two defaults therefore have to be overridden:
+ *
+ * - node-postgres times a connection attempt out after 5s here, which is below
+ *   what the handshake routinely costs, so the attempt was being abandoned
+ *   moments before it would have succeeded.
+ * - node-postgres discards an idle connection after 10s. Anyone reading a page
+ *   for longer than that paid the full cold handshake on their next click, so
+ *   nearly every request was a cold one.
+ */
+function databaseConfig() {
+  return {
+    poolMax: parseInteger(process.env.DB_POOL_MAX, 5),
+    // Generous, because a slow answer beats a failed one. It is a ceiling, not
+    // a delay: a healthy connection still completes in seconds.
+    connectionTimeoutMs: parseInteger(
+      process.env.DB_CONNECTION_TIMEOUT_MS,
+      30_000,
+    ),
+    // Keep a connection through the pauses in ordinary use, so the handshake is
+    // paid once per session rather than once per click.
+    idleTimeoutMs: parseInteger(process.env.DB_IDLE_TIMEOUT_MS, 600_000),
+  };
+}
 
 /**
  * A session cookie only reaches the API if its attributes match how the site is

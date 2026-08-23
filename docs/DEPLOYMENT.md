@@ -26,6 +26,9 @@ never in the repository.
 | `ENABLE_SWAGGER` | unset, or `false` | `true` publishes `/api/docs`. |
 | `DATABASE_URL` | **secret** | Supabase pooled connection, port 6543. |
 | `DIRECT_URL` | **secret** | Supabase direct connection, port 5432. Migrations use this. |
+| `DB_CONNECTION_TIMEOUT_MS` | *(optional)* | Defaults to 30000. See "Connection pool" below. |
+| `DB_IDLE_TIMEOUT_MS` | *(optional)* | Defaults to 600000. |
+| `DB_POOL_MAX` | *(optional)* | Defaults to 5 connections per instance. |
 | `JWT_SECRET` | **secret** | Generate a new one; never reuse the development value. |
 | `CLOUDINARY_CLOUD_NAME` | **secret** | |
 | `CLOUDINARY_API_KEY` | **secret** | |
@@ -115,6 +118,26 @@ Set this on the frontend build, or it will keep calling localhost:
 ```
 NEXT_PUBLIC_API_BASE_URL=https://pg-backend-pozw.onrender.com/api
 ```
+
+## Connection pool
+
+The database is in `ap-southeast-2` and the app runs in `singapore`, so a
+connection is expensive to open and cheap to keep: opening one was measured at
+**2.2s–12.9s**, reusing an open one at **under a second**. node-postgres'
+defaults are wrong for that distance in two ways, and both are overridden:
+
+- it gives up on a connection attempt after 5s — less than the handshake
+  routinely costs, so attempts were abandoned moments before succeeding;
+- it discards an idle connection after 10s, so anyone who paused longer than
+  that paid the full handshake on their next click.
+
+The visible symptom of both was a plain **500 Internal server error**, because
+node-postgres reports connection trouble on the pool rather than on the query.
+Those failures are now logged explicitly, and the first connection is opened at
+startup so the first visitor does not pay for it.
+
+Raise `DB_POOL_MAX` only alongside Supabase's own pooler limit; every instance
+of the service holds its own pool.
 
 ## The session cookie
 
