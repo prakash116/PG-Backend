@@ -22,8 +22,12 @@ function normalizeEmail({ value }: TransformFnParams): unknown {
   return typeof value === 'string' ? value.trim().toLowerCase() : value;
 }
 
-/** Either an absolute URL or a path served by this API, e.g. /uploads/abc.webp */
-const PROFILE_IMAGE_PATTERN = /^(https?:\/\/|\/)[^\s]+$/;
+/**
+ * An absolute URL or a path served by this API, e.g. /uploads/abc.webp — and an
+ * empty string, which is how the account page removes a photo. Without that
+ * alternative there is no way to say "I no longer want one".
+ */
+const PROFILE_IMAGE_PATTERN = /^$|^(https?:\/\/|\/)[^\s]+$/;
 
 /**
  * What a signed-in person may change about their own account.

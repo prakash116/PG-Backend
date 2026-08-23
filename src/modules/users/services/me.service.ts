@@ -6,6 +6,7 @@ import {
 } from '../../../generated/prisma/client';
 import { DatabaseService } from '../../../database/database.service';
 import { isUniqueConstraintOn } from '../../../database/prisma-errors';
+import { StorageService } from '../../uploads/services/storage.service';
 import { ProfileDetail } from '../models/profile-response.model';
 import { StayDetail } from '../models/stay-response.model';
 import { UpdateProfileDto } from '../models/update-profile.dto';
@@ -48,7 +49,10 @@ function blankToNull(value: string): string | null {
 
 @Injectable()
 export class MeService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly storageService: StorageService,
+  ) {}
 
   async getProfile(userId: string): Promise<ProfileDetail> {
     // The session guard has already proven this row exists.
@@ -100,12 +104,29 @@ export class MeService {
     if (dto.country !== undefined) data.country = blankToNull(dto.country);
     if (dto.pincode !== undefined) data.pincode = blankToNull(dto.pincode);
 
+    // Read before writing, so a replaced photo can be cleaned up afterwards.
+    const previousImage =
+      data.profileImage === undefined
+        ? null
+        : (
+            await this.databaseService.user.findUniqueOrThrow({
+              where: { id: userId },
+              select: { profileImage: true },
+            })
+          ).profileImage;
+
     try {
       const user = await this.databaseService.user.update({
         where: { id: userId },
         data,
         select: PROFILE_SELECT,
       });
+
+      // A replaced or removed photo would otherwise leave its file behind — the
+      // same housekeeping the PG listing already does for its logo.
+      if (previousImage && previousImage !== user.profileImage) {
+        void this.storageService.deleteImage(previousImage);
+      }
 
       return toProfileDetail(user);
     } catch (error) {
