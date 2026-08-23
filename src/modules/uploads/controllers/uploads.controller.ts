@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  GatewayTimeoutException,
   HttpCode,
   HttpStatus,
   InternalServerErrorException,
@@ -23,6 +24,7 @@ import {
 import { UploadImageResponse } from '../models/upload-response.model';
 import {
   ALLOWED_IMAGE_MIME_TYPES,
+  ImageUploadTimeoutError,
   MAX_IMAGE_BYTES,
   StorageService,
   UploadedImageFile,
@@ -195,6 +197,18 @@ export class UploadsController {
         data: { url },
       };
     } catch (error: unknown) {
+      // A timeout is not a server fault and not a bad file: the upload simply
+      // did not finish in time. Saying so, and saying it is worth retrying, is
+      // far more useful than a blanket 500.
+      if (error instanceof ImageUploadTimeoutError) {
+        this.logger.warn(
+          `Image upload to "${folder}" timed out after every attempt.`,
+        );
+        throw new GatewayTimeoutException(
+          'The upload took too long. Check your connection and try again.',
+        );
+      }
+
       // The reason belongs in the logs, not in the HTTP response.
       this.logger.error(`Image upload failed for folder "${folder}".`, error);
       throw new InternalServerErrorException('Internal Server Error.');

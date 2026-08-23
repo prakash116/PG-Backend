@@ -46,16 +46,24 @@ export class RoomTypeInput {
   @IsEnum(RoomType)
   type!: RoomType;
 
+  /**
+   * Decorator order is load-bearing. class-validator reports a field's failed
+   * constraints in reverse declaration order, and the website shows the first
+   * message — so with `@IsInt()` written first, a *missing* roomCount was
+   * reported as "must not be greater than 500", which sent us looking at the
+   * number the owner had typed instead of at the field that never arrived.
+   * The type check is declared last so it is the message that surfaces.
+   */
   @ApiProperty({ example: 6, description: 'How many rooms of this type.' })
-  @IsInt()
   @Min(0)
   @Max(MAX_ROOMS)
+  @IsInt({ message: 'Enter how many rooms of this type you have.' })
   roomCount!: number;
 
   @ApiProperty({ example: 9800, description: 'Monthly rent per bed.' })
-  @IsInt()
   @Min(0)
   @Max(MAX_RUPEES)
+  @IsInt({ message: 'Enter the monthly rent per bed.' })
   pricePerBed!: number;
 
   @ApiProperty({

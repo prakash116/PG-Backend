@@ -32,6 +32,7 @@ interface CloudinaryApi {
     api_key: string;
     api_secret: string;
     secure: boolean;
+    timeout: number;
   }): unknown;
   uploader: {
     upload_stream(
@@ -55,6 +56,71 @@ export const ALLOWED_IMAGE_MIME_TYPES = [
 ] as const;
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * A 5 MB photo on a domestic Indian upload link can take well over a minute.
+ * The SDK's own default is shorter than that, which is how a perfectly good
+ * upload came back as `TimeoutError / http_code 499`.
+ */
+const CLOUDINARY_TIMEOUT_MS = 120_000;
+
+/** One upload attempt plus this many retries. */
+const UPLOAD_RETRIES = 2;
+const RETRY_BACKOFF_MS = 1_000;
+
+/**
+ * Raised when every attempt timed out. Distinct from a genuine failure so the
+ * controller can answer "try again" rather than "something went wrong",
+ * which are two very different instructions to give someone.
+ */
+export class ImageUploadTimeoutError extends Error {
+  constructor() {
+    super('The image upload timed out.');
+    this.name = 'ImageUploadTimeoutError';
+  }
+}
+
+/**
+ * A timeout or a dropped connection says nothing about the file — only about
+ * the network at that moment, so it is worth retrying. A rejected file is not.
+ */
+function isTransient(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const { name, message, http_code: httpCode } = error as {
+    name?: unknown;
+    message?: unknown;
+    http_code?: unknown;
+  };
+
+  if (name === 'TimeoutError') return true;
+  // 499 is what Cloudinary returns when it gives up waiting on the upload.
+  if (httpCode === 499 || (typeof httpCode === 'number' && httpCode >= 500)) {
+    return true;
+  }
+
+  return (
+    typeof message === 'string' &&
+    /timeout|socket hang up|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND/i.test(
+      message,
+    )
+  );
+}
+
+function isTimeout(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const { name, http_code: httpCode } = error as {
+    name?: unknown;
+    http_code?: unknown;
+  };
+
+  return name === 'TimeoutError' || httpCode === 499;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms));
+}
 
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -102,10 +168,52 @@ export class StorageService {
   }
 
   /**
+   * Uploads, retrying a network wobble rather than losing the owner's photo.
+   *
+   * Retrying is only safe because multer holds the file in memory: the buffer
+   * is still intact for a second attempt, where a disk- or stream-backed upload
+   * would have been consumed by the first.
+   */
+  private async uploadToCloudinary(
+    file: UploadedImageFile,
+    folder: UploadFolder,
+  ): Promise<string> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= UPLOAD_RETRIES + 1; attempt += 1) {
+      try {
+        return await this.uploadOnce(file, folder);
+      } catch (error: unknown) {
+        lastError = error;
+
+        if (!isTransient(error) || attempt === UPLOAD_RETRIES + 1) break;
+
+        this.logger.warn(
+          `Upload to "${folder}" failed (attempt ${attempt} of ${UPLOAD_RETRIES + 1}), retrying: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+
+        await wait(RETRY_BACKOFF_MS * attempt);
+      }
+    }
+
+    // A timeout is worth telling the owner about specifically: their file was
+    // fine, the connection was not, and trying again usually works.
+    if (isTimeout(lastError)) {
+      throw new ImageUploadTimeoutError();
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Cloudinary upload failed.');
+  }
+
+  /**
    * Streams multer's in-memory buffer straight to Cloudinary. Streaming avoids
    * the ~33% inflation of encoding the image as a base64 data URI first.
    */
-  private uploadToCloudinary(
+  private uploadOnce(
     file: UploadedImageFile,
     folder: UploadFolder,
   ): Promise<string> {
@@ -281,6 +389,7 @@ export class StorageService {
       api_secret: apiSecret.trim(),
       // Always hand back https URLs, which the site can embed on any page.
       secure: true,
+      timeout: CLOUDINARY_TIMEOUT_MS,
     });
 
     return v2;

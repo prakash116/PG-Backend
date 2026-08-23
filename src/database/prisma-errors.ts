@@ -65,6 +65,21 @@ export function uniqueConstraintFields(error: unknown): string[] {
   return [];
 }
 
+/**
+ * P2028: an interactive transaction ran past its budget.
+ *
+ * Almost always a slow link rather than a slow query — the database is in
+ * ap-southeast-2 and a round trip costs ~400 ms, so a handful of sequential
+ * statements is enough. It says nothing useful to the person saving, so the
+ * caller should turn it into "that took too long, try again" rather than a 500.
+ */
+export function isTransactionTimeout(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2028'
+  );
+}
+
 /** True when `error` is a unique violation involving `field`. */
 export function isUniqueConstraintOn(error: unknown, field: string): boolean {
   const needle = field.toLowerCase();

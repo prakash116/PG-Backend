@@ -112,6 +112,34 @@ Never "fix" a build by editing generated files, loosening `tsconfig` `strict`,
 adding `any`, or `@ts-ignore`-ing an import. Those hide Rule 1 and Rule 2 problems
 and break the next person. Regenerate or fix config instead.
 
+## Rule 6: keep existing functions working — don't break what already works
+
+A fix that breaks something else is not a fix. Every change has to leave the
+behaviour around it intact, and you have to *show* that, not assume it.
+
+- **Add, don't replace.** Extend an allow-list, add a branch, add an optional
+  field. Rewriting a working function to make room for a new case is how the
+  new case ships and the old one quietly stops working.
+- **Before changing a shared type, DTO or response shape, find every caller.**
+  `grep` the name across both projects. A field added to a DTO but not to the
+  website's matching interface — or the reverse — compiles cleanly on both
+  sides and fails at runtime.
+- **When you fix a bug, assert the neighbours still hold.** The test for
+  "roomCount is now sent" is worth little without "501 rooms is still refused"
+  and "a missing photo is still named" beside it.
+- **Never widen validation to make an error go away.** If a payload is
+  rejected, fix the payload. Raising a `@Max`, dropping a `@IsNotEmpty` or
+  loosening a regex to silence a message removes a guard that was doing its job.
+- **Decorator order is load-bearing.** class-validator reports a field's failed
+  constraints in *reverse declaration order*, and the website shows the first
+  message. Declare the type check (`@IsInt`, `@IsString`) **last** so a missing
+  value reads as "this is required" rather than as a complaint about a limit —
+  a missing `roomCount` was once reported as "must not be greater than 500",
+  which sent the search to the wrong side of the request entirely.
+
+If you cannot keep an existing behaviour, say so explicitly and explain the
+trade-off. Do not decide silently.
+
 ## Roles
 
 Three roles live in the `UserRole` enum: `SUPER_ADMIN`, `PG_OWNER`, `USER`.

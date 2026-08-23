@@ -9,7 +9,7 @@ import { DatabaseService } from '../../../database/database.service';
 import { CreateRoomsDto, UpdateRoomDto } from '../models/room.dto';
 
 /** Default beds per room, by sharing type. An odd room can override it. */
-const BEDS_PER_ROOM: Record<RoomType, number> = {
+export const BEDS_PER_ROOM: Record<RoomType, number> = {
   SINGLE: 1,
   DOUBLE: 2,
   TRIPLE: 3,

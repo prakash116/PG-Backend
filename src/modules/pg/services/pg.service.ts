@@ -1,6 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { RoomType } from '../../../generated/prisma/client';
 import { DatabaseService } from '../../../database/database.service';
+import { isTransactionTimeout } from '../../../database/prisma-errors';
 import {
   PgCompletionResponse,
   PgDetail,
@@ -10,14 +17,55 @@ import {
 import { StorageService } from '../../uploads/services/storage.service';
 import { UpdatePgDto } from '../models/update-pg.dto';
 import { RoomTypeInput } from '../models/update-rooms.dto';
+import { BEDS_PER_ROOM } from './rooms.service';
 
-/** How many beds a room of each type holds, used to derive bed counts. */
-const BEDS_PER_ROOM: Record<RoomType, number> = {
-  SINGLE: 1,
-  DOUBLE: 2,
-  TRIPLE: 3,
-  PREMIUM: 1,
-};
+/** One room as the planner needs it: enough to decide, nothing more. */
+interface ExistingRoom {
+  id: string;
+  number: string;
+  type: RoomType;
+  /** How many guests are in it. Anything above zero makes it undeletable. */
+  residents: number;
+}
+
+/** The writes a save needs, worked out before the transaction opens. */
+interface RoomPlan {
+  create: Array<{
+    pgId: string;
+    number: string;
+    type: RoomType;
+    totalBeds: number;
+  }>;
+  deleteIds: string[];
+}
+
+/**
+ * Free room numbers, continuing the run the owner already uses: a PG numbered
+ * 101–116 gets 117 next. A PG with no numeric rooms starts at 101, which reads
+ * as a room number in a way that "1" does not.
+ */
+function nextRoomNumbers(taken: Set<string>, count: number): string[] {
+  const numeric = [...taken]
+    .map((number) => Number.parseInt(number, 10))
+    .filter((number) => Number.isFinite(number));
+
+  let candidate = numeric.length > 0 ? Math.max(...numeric) + 1 : 101;
+  const numbers: string[] = [];
+
+  while (numbers.length < count) {
+    const next = String(candidate);
+
+    // A non-numeric name like "G-4" can still collide with a plain number.
+    if (!taken.has(next)) {
+      taken.add(next);
+      numbers.push(next);
+    }
+
+    candidate += 1;
+  }
+
+  return numbers;
+}
 
 /**
  * The only PG columns an owner may write. `verification`, `verifiedAt`,
@@ -129,11 +177,14 @@ export class PgService {
   async getOwnerPg(ownerId: string): Promise<PgDetail> {
     const pg = await this.findByOwner(ownerId);
 
-    return this.present(
-      pg,
-      await this.occupancyOf(pg.id),
-      await this.inventoryOf(pg.id),
-    );
+    // Neither depends on the other, and a round trip to the pooler costs about
+    // 400 ms, so awaiting them in turn spent that twice for no reason.
+    const [occupancy, inventory] = await Promise.all([
+      this.occupancyOf(pg.id),
+      this.inventoryOf(pg.id),
+    ]);
+
+    return this.present(pg, occupancy, inventory);
   }
 
   async updateOwnerPg(ownerId: string, dto: UpdatePgDto): Promise<PgDetail> {
@@ -206,42 +257,83 @@ export class PgService {
     ownerId: string,
     rooms: RoomTypeInput[],
   ): Promise<PgDetail> {
-    const pg = await this.findByOwner(ownerId);
-
     this.assertNoDuplicateTypes(rooms);
 
     const prepared = rooms;
 
-    await this.databaseService.$transaction(async (tx) => {
-      await tx.pgRoomType.deleteMany({
-        where: {
-          pgId: pg.id,
-          type: { notIn: prepared.map((room) => room.type) },
-        },
-      });
+    // Read once, outside the transaction, and both at the same time.
+    // Everything the plan needs — the rooms of each type and the numbers
+    // already in use — comes from one query, where doing it per room type cost
+    // three round trips each and is what blew the transaction budget.
+    const [pg, existing] = await Promise.all([
+      this.findByOwner(ownerId),
+      this.roomsOfOwner(ownerId),
+    ]);
 
-      for (const room of prepared) {
-        await tx.pgRoomType.upsert({
-          where: { pgId_type: { pgId: pg.id, type: room.type } },
-          update: {
-            pricePerBed: room.pricePerBed,
-            roomImage1: room.roomImage1,
-            roomImage2: room.roomImage2,
-            bathroomImage: room.bathroomImage,
-            otherImage: room.otherImage,
-          },
-          create: {
-            pgId: pg.id,
-            type: room.type,
-            pricePerBed: room.pricePerBed,
-            roomImage1: room.roomImage1,
-            roomImage2: room.roomImage2,
-            bathroomImage: room.bathroomImage,
-            otherImage: room.otherImage,
-          },
-        });
+    // Throws if a shrink would strand a guest, before anything has been written.
+    const plan = this.planRooms(pg.id, existing, prepared);
+
+    try {
+      await this.databaseService.$transaction(
+        async (tx) => {
+          await tx.pgRoomType.deleteMany({
+            where: {
+              pgId: pg.id,
+              type: { notIn: prepared.map((room) => room.type) },
+            },
+          });
+
+          // The room type carries price and photos; the rooms themselves live
+          // in their own table, and the dashboard's counts are taken from it.
+          // These upserts have to come first either way: Room's foreign key
+          // points at (pgId, type).
+          for (const room of prepared) {
+            await tx.pgRoomType.upsert({
+              where: { pgId_type: { pgId: pg.id, type: room.type } },
+              update: {
+                pricePerBed: room.pricePerBed,
+                roomImage1: room.roomImage1,
+                roomImage2: room.roomImage2,
+                bathroomImage: room.bathroomImage,
+                otherImage: room.otherImage,
+              },
+              create: {
+                pgId: pg.id,
+                type: room.type,
+                pricePerBed: room.pricePerBed,
+                roomImage1: room.roomImage1,
+                roomImage2: room.roomImage2,
+                bathroomImage: room.bathroomImage,
+                otherImage: room.otherImage,
+              },
+            });
+          }
+
+          // Deletes before creates, so a number freed by a shrink can be reused
+          // by a growth in the same save without tripping the unique constraint.
+          if (plan.deleteIds.length > 0) {
+            await tx.room.deleteMany({ where: { id: { in: plan.deleteIds } } });
+          }
+
+          if (plan.create.length > 0) {
+            await tx.room.createMany({ data: plan.create });
+          }
+        },
+        // The restructure above is what keeps this inside the budget; the
+        // raised ceiling is headroom for a slow moment on a ~400 ms link,
+        // not the fix.
+        { timeout: 20_000, maxWait: 15_000 },
+      );
+    } catch (error: unknown) {
+      // "Internal server error" tells the owner nothing they can act on.
+      if (isTransactionTimeout(error)) {
+        throw new ServiceUnavailableException(
+          'Saving took too long. Check your connection and try again.',
+        );
       }
-    });
+
+      throw error;
+    }
 
     // Replaced photos, and every photo of a room type that was dropped, are
     // no longer referenced by anything — remove them from storage.
@@ -250,6 +342,92 @@ export class PgService {
     );
 
     return this.getOwnerPg(ownerId);
+  }
+
+  /**
+   * Every room in this owner's PG, keyed off the owner so it can be read
+   * alongside the PG itself rather than after it.
+   */
+  private async roomsOfOwner(ownerId: string): Promise<ExistingRoom[]> {
+    const rooms = await this.databaseService.room.findMany({
+      where: { pg: { ownerId } },
+      select: {
+        id: true,
+        number: true,
+        type: true,
+        _count: { select: { residents: true } },
+      },
+    });
+
+    return rooms.map((room) => ({
+      id: room.id,
+      number: room.number,
+      type: room.type,
+      residents: room._count.residents,
+    }));
+  }
+
+  /**
+   * Works out which rooms to create and which to remove so the actual rooms
+   * match the counts the owner asked for.
+   *
+   * Deliberately does no querying: it is handed every room in the PG and
+   * returns a plan. Doing this per room type, inside the transaction, meant
+   * three extra round trips per type — and at ~400 ms to the Supabase pooler,
+   * four room types blew Prisma's 5-second transaction budget and the save
+   * failed with P2028.
+   *
+   * A room with someone living in it is never removed. `Resident.roomId` is
+   * `SetNull`, so deleting an occupied room would not fail — it would quietly
+   * leave a guest with no room, which is worse than refusing the save. That
+   * refusal is raised here, before the transaction opens, because a save that
+   * cannot proceed never needed one.
+   */
+  private planRooms(
+    pgId: string,
+    existing: ExistingRoom[],
+    wanted: RoomTypeInput[],
+  ): RoomPlan {
+    const taken = new Set(existing.map((room) => room.number));
+    const create: RoomPlan['create'] = [];
+    const deleteIds: string[] = [];
+
+    for (const { type, roomCount: target } of wanted) {
+      // Oldest number first, so the numbers an owner has been using longest are
+      // the ones that survive a shrink.
+      const ofType = existing
+        .filter((room) => room.type === type)
+        .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
+
+      if (ofType.length === target) continue;
+
+      if (ofType.length < target) {
+        for (const number of nextRoomNumbers(taken, target - ofType.length)) {
+          create.push({ pgId, number, type, totalBeds: BEDS_PER_ROOM[type] });
+        }
+
+        continue;
+      }
+
+      const surplus = ofType.length - target;
+      const empty = ofType.filter((room) => room.residents === 0);
+
+      if (empty.length < surplus) {
+        const occupied = ofType.length - empty.length;
+
+        throw new ConflictException(
+          `${this.describe(type)}: ${occupied} room${occupied === 1 ? ' has' : 's have'} guests in ${occupied === 1 ? 'it' : 'them'}, so you cannot go below ${occupied}. Move the guests out first.`,
+        );
+      }
+
+      for (const room of empty.slice(-surplus)) {
+        deleteIds.push(room.id);
+        // Freed within this same save, so the number can be reused below.
+        taken.delete(room.number);
+      }
+    }
+
+    return { create, deleteIds };
   }
 
   /**
