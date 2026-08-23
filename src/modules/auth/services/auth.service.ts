@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, UserRole } from '../../../generated/prisma/client';
 import { DatabaseService } from '../../../database/database.service';
+import { isUniqueConstraintOn } from '../../../database/prisma-errors';
 import { LoginDto } from '../models/login.dto';
 import { LoginResponse } from '../models/login-response.model';
 import { RegisterDto } from '../models/register.dto';
@@ -72,21 +73,6 @@ function splitFullName(fullName: string): {
   };
 }
 
-function isUniqueConstraintOn(error: unknown, field: string): boolean {
-  if (
-    !(error instanceof Prisma.PrismaClientKnownRequestError) ||
-    error.code !== 'P2002'
-  ) {
-    return false;
-  }
-
-  const target = error.meta?.target;
-  const constraint = Array.isArray(target)
-    ? target.join(' ').toLowerCase()
-    : String(target ?? '').toLowerCase();
-
-  return constraint.includes(field.toLowerCase());
-}
 
 @Injectable()
 export class AuthService {
