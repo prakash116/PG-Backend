@@ -27,6 +27,7 @@ import {
 import { SessionCookieService } from '../../auth/services/session-cookie.service';
 import { CloseAccountResponse } from '../models/close-account-response.model';
 import { ProfileResponse } from '../models/profile-response.model';
+import { ReferralsResponse } from '../models/referrals-response.model';
 import { StayResponse } from '../models/stay-response.model';
 import { UpdateProfileDto } from '../models/update-profile.dto';
 import {
@@ -130,6 +131,28 @@ export class MeController {
       success: true,
       message: `Account closed. You have ${closed.graceDays} days to ask us to restore it.`,
       data: closed,
+    };
+  }
+
+  @Get('me/referrals')
+  @ApiOperation({
+    summary: 'Your referral code and what it has earned',
+    description:
+      'A PG owner enters this code when registering. Once that PG publishes, the reward is credited here.',
+  })
+  @ApiOkResponse({
+    description: 'Referrals retrieved successfully.',
+    type: ReferralsResponse,
+  })
+  @ApiUnauthorizedResponse({ description: 'Session is missing or expired.' })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
+  async getReferrals(
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ReferralsResponse> {
+    return {
+      success: true,
+      message: 'Referrals retrieved successfully.',
+      data: await this.meService.getReferrals(request.sessionUser.id),
     };
   }
 

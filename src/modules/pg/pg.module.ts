@@ -5,10 +5,12 @@ import { AuthModule } from '../auth/auth.module';
 import { UploadsModule } from '../uploads/uploads.module';
 import { PgController } from './controllers/pg.controller';
 import { PublicPgController } from './controllers/public-pg.controller';
+import { PublishingController } from './controllers/publishing.controller';
 import { RoomsController } from './controllers/rooms.controller';
 import { OwnerVisitsController } from '../visits/controllers/visits.controller';
 import { VisitsModule } from '../visits/visits.module';
 import { PgService } from './services/pg.service';
+import { PublishingService } from './services/publishing.service';
 import { RoomsService } from './services/rooms.service';
 
 @Module({
@@ -17,8 +19,9 @@ import { RoomsService } from './services/rooms.service';
     PgController,
     PublicPgController,
     RoomsController,
+    PublishingController,
     OwnerVisitsController,
   ],
-  providers: [PgService, RoomsService],
+  providers: [PgService, PublishingService, RoomsService],
 })
 export class PgModule {}

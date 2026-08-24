@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -12,7 +13,7 @@ import { LoginDto } from '../models/login.dto';
 import { LoginResponse } from '../models/login-response.model';
 import { RegisterDto } from '../models/register.dto';
 import { RegisterResponse } from '../models/register-response.model';
-import { generatePgCode } from './pg-code';
+import { generatePgCode, generateReferralCode } from './pg-code';
 import { SessionTokenPayload } from './session-cookie.service';
 
 interface BcryptApi {
@@ -161,6 +162,12 @@ export class AuthService {
     const { firstName, lastName } = splitFullName(registerDto.fullName);
     const isOwner = registerDto.role === UserRole.PG_OWNER;
 
+    // Resolved before anything is written, so a bad code is a clean rejection
+    // rather than a half-made account.
+    const referrerId = isOwner
+      ? await this.resolveReferrer(registerDto.referralCode)
+      : null;
+
     for (let attempt = 1; attempt <= PG_CODE_ATTEMPTS; attempt += 1) {
       try {
         const created = await this.databaseService.$transaction(async (tx) => {
@@ -183,6 +190,9 @@ export class AuthService {
               city: registerDto.city,
               address: registerDto.address,
               pincode: registerDto.pincode,
+              // Only a customer gets a referral code: it is what an owner types
+              // in to credit them, so an owner having one would be meaningless.
+              referralCode: isOwner ? undefined : generateReferralCode(),
             },
             select: REGISTERED_USER_SELECT,
           });
@@ -197,6 +207,7 @@ export class AuthService {
               name: registerDto.pgName as string,
               location: registerDto.pgLocation as string,
               ownerId: user.id,
+              referredById: referrerId,
             },
             select: REGISTERED_PG_SELECT,
           });
@@ -217,9 +228,12 @@ export class AuthService {
           },
         };
       } catch (error: unknown) {
-        // A duplicate PG code is pure bad luck: roll back and draw another.
+        // A duplicate generated code is pure bad luck: roll back and draw
+        // another. Both codes come from the same 32-character alphabet, so the
+        // referral code needs the same second chance the PG code always had.
         if (
-          isUniqueConstraintOn(error, 'pgcode') &&
+          (isUniqueConstraintOn(error, 'pgcode') ||
+            isUniqueConstraintOn(error, 'referralcode')) &&
           attempt < PG_CODE_ATTEMPTS
         ) {
           continue;
@@ -254,6 +268,41 @@ export class AuthService {
         ? 'Email already exists.'
         : 'Phone already exists.',
     );
+  }
+
+  /**
+   * Turns a referral code into the customer it belongs to.
+   *
+   * A blank code simply means no referral, which is the ordinary case. A code
+   * that was typed but does not match anything is an error worth stopping for:
+   * silently ignoring it would lose someone their ₹100 without telling anyone.
+   */
+  private async resolveReferrer(code: string | undefined): Promise<string | null> {
+    const referralCode = code?.trim().toUpperCase();
+
+    if (!referralCode) return null;
+
+    const referrer = await this.databaseService.user.findUnique({
+      where: { referralCode },
+      select: { id: true, role: true, isActive: true, deletedAt: true },
+    });
+
+    // Only a customer can refer, so an owner's or an admin's code is no more
+    // valid than one that does not exist — and saying which it was would leak
+    // whether a given code is in use.
+    if (!referrer || referrer.role !== UserRole.USER) {
+      throw new BadRequestException(
+        'That referral code does not exist. Leave it blank if you do not have one.',
+      );
+    }
+
+    if (!referrer.isActive || referrer.deletedAt) {
+      throw new BadRequestException(
+        'That referral code belongs to a closed account.',
+      );
+    }
+
+    return referrer.id;
   }
 
   /** Covers the race between the check above and the insert. */

@@ -53,6 +53,9 @@ model User {
   isPhoneVerified Boolean   @default(false)
   isActive        Boolean   @default(true)
   isBlocked       Boolean   @default(false)
+  /// Shareable code a customer gives a PG owner, e.g. PZR-4F7K2A. Only
+  /// customers get one; owners and admins have none.
+  referralCode    String?   @unique
   /// Set when the account is closed. The row is purged 30 days later, which is
   /// the window in which a Super Admin can still restore it.
   deletedAt       DateTime?
@@ -60,9 +63,15 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  pg            Pg?
-  residents     Resident[]
-  visitRequests VisitRequest[]
+  pg              Pg?
+  residents       Resident[]
+  visitRequests   VisitRequest[]
+  /// PGs that named this customer's referral code when they registered.
+  referredPgs     Pg[]              @relation("PgReferrer")
+  /// ₹100 credited to this customer each time a referred PG goes live.
+  referralRewards ReferralReward[]
+  /// Listing fees this Super Admin has confirmed receipt of.
+  confirmedFees   PlatformPayment[] @relation("PlatformPaymentConfirmedBy")
 
   /// The purge job scans for closed accounts past their window every day.
   @@index([deletedAt])
@@ -94,6 +103,12 @@ enum VerificationStatus {
   REJECTED
 }
 
+/// Whether the ₹100 listing fee has been received.
+enum PlatformPaymentStatus {
+  PENDING
+  PAID
+}
+
 model Pg {
   id           String             @id @default(cuid())
   /// Short, shareable code an owner can quote (e.g. PZ-4F7K2A).
@@ -114,6 +129,13 @@ model Pg {
   /// Matches the string list the website already models.
   amenities    String[]           @default([])
   images       String[]           @default([])
+  /// A new PG is private until the ₹100 listing fee is confirmed. Existing PGs
+  /// were published by the migration so nothing already live went dark.
+  isPublished  Boolean            @default(false)
+  publishedAt  DateTime?
+  /// The customer whose referral code the owner gave at registration.
+  referredById String?
+  referredBy   User?              @relation("PgReferrer", fields: [referredById], references: [id], onDelete: SetNull)
   /// Set by a Super Admin only; never writable by the owner.
   verification VerificationStatus @default(PENDING)
   verifiedAt   DateTime?
@@ -127,8 +149,55 @@ model Pg {
   visits       VisitRequest[]
   rooms        Room[]
   payments     Payment[]
+  /// The one-off ₹100 that makes this PG public.
+  listingFee     PlatformPayment?
+  /// The ₹100 credited to the referring customer once that fee is confirmed.
+  referralReward ReferralReward?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
+}
+
+/**
+ * The one-off ₹100 a PG owner pays the platform to make their listing public.
+ *
+ * There is no payment gateway yet, so the owner pays by UPI and a Super Admin
+ * confirms receipt. That confirmation is the single place the PG goes live and
+ * the referral reward is credited, which is exactly where a Razorpay webhook
+ * will attach later without any of this being rebuilt.
+ */
+model PlatformPayment {
+  id            String                @id @default(cuid())
+  /// One fee per PG, so it can never be charged or confirmed twice.
+  pgId          String                @unique
+  pg            Pg                    @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  /// Rupees, matching how every other amount in this schema is stored.
+  amount        Int
+  status        PlatformPaymentStatus @default(PENDING)
+  /// UPI reference the owner quotes, so the admin can match the transfer.
+  reference     String?
+  paidAt        DateTime?
+  confirmedById String?
+  confirmedBy   User?                 @relation("PlatformPaymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([status])
+}
+
+/**
+ * ₹100 credited to the customer who referred a PG, once that PG's listing fee
+ * is confirmed. One per PG: the unique key is what stops a double payout.
+ */
+model ReferralReward {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  pgId       String   @unique
+  pg         Pg       @relation(fields: [pgId], references: [id], onDelete: Cascade)
+  amount     Int
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
 }
 
 /// One row per room type per PG, carrying its own pricing and availability.

@@ -87,8 +87,33 @@ export default registerAs('app', () => {
       : true,
     session: sessionConfig(isProduction, corsOrigins),
     database: databaseConfig(),
+    listing: listingConfig(),
   };
 });
+
+/**
+ * The one-off fee that makes a PG listing public, and the referral reward paid
+ * out of it.
+ *
+ * Both are rupees, matching every other amount in this project. They are
+ * configurable because a price is a business decision, not a constant — but
+ * they default to the agreed ₹100 so nothing breaks when the variables are
+ * absent.
+ */
+function listingConfig() {
+  return {
+    feeRupees: parseInteger(process.env.LISTING_FEE_RUPEES, 100),
+    referralRewardRupees: parseInteger(
+      process.env.REFERRAL_REWARD_RUPEES,
+      100,
+    ),
+    /**
+     * Where owners send the fee. Empty until it is set, and the API says so
+     * rather than showing a placeholder someone might actually pay.
+     */
+    payeeUpiId: process.env.SUPER_ADMIN_UPI_ID?.trim() || '',
+  };
+}
 
 /**
  * Connection pool settings for the Supabase pooler.

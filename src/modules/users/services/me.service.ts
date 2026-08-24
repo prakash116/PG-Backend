@@ -1,5 +1,6 @@
 /** The account, and the stay, belonging to whoever is signed in. */
 import { ConflictException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
   ResidentStatus,
@@ -8,6 +9,7 @@ import { DatabaseService } from '../../../database/database.service';
 import { isUniqueConstraintOn } from '../../../database/prisma-errors';
 import { StorageService } from '../../uploads/services/storage.service';
 import { ProfileDetail } from '../models/profile-response.model';
+import { ReferralsDetail } from '../models/referrals-response.model';
 import { StayDetail } from '../models/stay-response.model';
 import { UpdateProfileDto } from '../models/update-profile.dto';
 
@@ -52,6 +54,7 @@ export class MeService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly storageService: StorageService,
+    private readonly configService: ConfigService,
   ) {}
 
   async getProfile(userId: string): Promise<ProfileDetail> {
@@ -140,6 +143,52 @@ export class MeService {
 
       throw error;
     }
+  }
+
+  /**
+   * This customer's referral code, what it has earned, and what is still in
+   * flight.
+   *
+   * A referred PG earns nothing until it publishes, so the pending count is
+   * shown separately rather than folded into the total — otherwise someone
+   * would see money they cannot have yet.
+   */
+  async getReferrals(userId: string): Promise<ReferralsDetail> {
+    const [user, rewards, pendingReferrals] = await Promise.all([
+      this.databaseService.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { referralCode: true },
+      }),
+      this.databaseService.referralReward.findMany({
+        where: { customerId: userId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          amount: true,
+          createdAt: true,
+          pg: { select: { name: true, pgCode: true } },
+        },
+      }),
+      this.databaseService.pg.count({
+        where: { referredById: userId, isPublished: false },
+      }),
+    ]);
+
+    return {
+      referralCode: user.referralCode,
+      earnedRupees: rewards.reduce((total, reward) => total + reward.amount, 0),
+      rewardPerReferral: this.configService.getOrThrow<number>(
+        'app.listing.referralRewardRupees',
+      ),
+      pendingReferrals,
+      rewards: rewards.map((reward) => ({
+        id: reward.id,
+        pgName: reward.pg.name,
+        pgCode: reward.pg.pgCode,
+        amount: reward.amount,
+        earnedAt: reward.createdAt.toISOString(),
+      })),
+    };
   }
 
   /**

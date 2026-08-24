@@ -38,6 +38,17 @@ function isOwner(dto: RegisterDto): boolean {
 const PROFILE_IMAGE_PATTERN = /^(https?:\/\/|\/)[^\s]+$/;
 
 /**
+ * `PZR-` and six characters from the unambiguous alphabet. An empty string is
+ * allowed so the field can simply be left blank on the form.
+ */
+const REFERRAL_CODE_PATTERN = /^$|^PZR-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
+
+/** People paste codes with stray spaces and in lower case; both are fine. */
+function normalizeReferralCode({ value }: TransformFnParams): unknown {
+  return typeof value === 'string' ? value.trim().toUpperCase() : value;
+}
+
+/**
  * One registration payload for both audiences. `role` selects which of the two
  * field sets is required, so a single endpoint and a single Swagger schema
  * cover "Find a PG" and "List a PG".
@@ -171,6 +182,20 @@ export class RegisterDto {
   @MaxLength(500)
   @IsNotEmpty({ message: 'PG location is required.' })
   pgLocation?: string;
+
+  @ApiPropertyOptional({
+    example: 'PZR-4F7K2A',
+    description:
+      'Optional. The referral code of the customer who introduced this PG. Only read when role is PG_OWNER.',
+  })
+  @Transform(normalizeReferralCode)
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  @Matches(REFERRAL_CODE_PATTERN, {
+    message: 'That referral code does not look right. It reads like PZR-4F7K2A.',
+  })
+  referralCode?: string;
 
   // ----- Optional, kept so existing callers that still send them keep working -----
 
