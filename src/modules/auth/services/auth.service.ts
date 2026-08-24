@@ -6,13 +6,20 @@ import {
   InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '../../../generated/prisma/client';
+import {
+  EmailOtpPurpose,
+  Prisma,
+  UserRole,
+} from '../../../generated/prisma/client';
 import { DatabaseService } from '../../../database/database.service';
 import { isUniqueConstraintOn } from '../../../database/prisma-errors';
 import { LoginDto } from '../models/login.dto';
 import { LoginResponse } from '../models/login-response.model';
 import { RegisterDto } from '../models/register.dto';
 import { RegisterResponse } from '../models/register-response.model';
+import { EmailOtpService } from '../../mail/services/email-otp.service';
+import { PlatformSettingsService } from '../../mail/services/platform-settings.service';
+import { PhoneVerificationService } from '../../phone/services/phone-verification.service';
 import { generatePgCode, generateReferralCode } from './pg-code';
 import { SessionTokenPayload } from './session-cookie.service';
 
@@ -77,7 +84,12 @@ function splitFullName(fullName: string): {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly emailOtpService: EmailOtpService,
+    private readonly platformSettingsService: PlatformSettingsService,
+    private readonly phoneVerificationService: PhoneVerificationService,
+  ) {}
 
   async login(loginDto: LoginDto): Promise<LoginResult> {
     const identifier = loginDto.identifier;
@@ -155,6 +167,48 @@ export class AuthService {
 
     await this.assertIdentifiersAreFree(registerDto.email, registerDto.phone);
 
+    /**
+     * The address has to have been verified by a code we sent to it — unless a
+     * Super Admin has switched that requirement off from the dashboard.
+     *
+     * Checked here rather than trusting a flag from the browser: a client that
+     * says "this is verified" is only repeating what it was told, and anyone
+     * can post to this endpoint directly. The same goes for the switch — the
+     * registration form reads it to decide what to show, but this is the copy
+     * that decides whether an account is allowed through.
+     */
+    const emailVerified = await this.emailOtpService.isVerified(
+      registerDto.email,
+      EmailOtpPurpose.REGISTRATION,
+    );
+
+    // Only read when the address is unproven, so the ordinary path stays at
+    // the query count it had before the switch existed.
+    if (
+      !emailVerified &&
+      (await this.platformSettingsService.requireEmailVerification())
+    ) {
+      throw new BadRequestException(
+        'Verify your email address before creating the account.',
+      );
+    }
+
+    // The number, the same way: the MSG91 widget checked the code in the
+    // browser, but what counts is the proof this API recorded when it
+    // confirmed the token with MSG91 — never the browser's say-so.
+    const phoneVerified = await this.phoneVerificationService.isVerified(
+      registerDto.phone,
+    );
+
+    if (
+      !phoneVerified &&
+      (await this.platformSettingsService.requirePhoneVerification())
+    ) {
+      throw new BadRequestException(
+        'Verify your mobile number before creating the account.',
+      );
+    }
+
     const password = await bcrypt.hash(
       registerDto.password,
       BCRYPT_SALT_ROUNDS,
@@ -190,6 +244,12 @@ export class AuthService {
               city: registerDto.city,
               address: registerDto.address,
               pincode: registerDto.pincode,
+              // True only when a code was actually checked. With verification
+              // switched off the account is real but the address is unproven,
+              // and saying so honestly is what lets it be asked for later.
+              isEmailVerified: emailVerified,
+              // Same honesty for the number: true only when MSG91 confirmed it.
+              isPhoneVerified: phoneVerified,
               // Only a customer gets a referral code: it is what an owner types
               // in to credit them, so an owner having one would be meaningless.
               referralCode: isOwner ? undefined : generateReferralCode(),
@@ -214,6 +274,12 @@ export class AuthService {
 
           return { user, pg };
         });
+
+        await this.emailOtpService.consume(
+          registerDto.email,
+          EmailOtpPurpose.REGISTRATION,
+        );
+        await this.phoneVerificationService.consume(registerDto.phone);
 
         return {
           tokenPayload: { sub: created.user.id, role: created.user.role },

@@ -88,8 +88,54 @@ export default registerAs('app', () => {
     session: sessionConfig(isProduction, corsOrigins),
     database: databaseConfig(),
     listing: listingConfig(),
+    mail: mailConfig(),
+    sms: smsConfig(),
   };
 });
+
+/**
+ * The mail account Pzee sends from.
+ *
+ * These are only the starting values. A Super Admin can change them from the
+ * dashboard, and the stored settings win — so the platform can send before
+ * anyone opens that page, and does not need a redeploy to change afterwards.
+ */
+/**
+ * The MSG91 account SMS codes go out through, via the OTP widget.
+ *
+ * Starting values only — a Super Admin can change them from the dashboard,
+ * and the stored settings win, exactly as with mail.
+ */
+function smsConfig() {
+  return {
+    /** Widget id and token auth are client-side values by MSG91's design. */
+    widgetId: process.env.MSG91_WIDGET_ID?.trim() || '',
+    tokenAuth: process.env.MSG91_TOKEN_AUTH?.trim() || '',
+    /** The account authkey stays server-side only. */
+    authkey: process.env.MSG91_AUTH_KEY?.trim() || '',
+  };
+}
+
+function mailConfig() {
+  return {
+    host: process.env.SMTP_HOST?.trim() || '',
+    port: parseInteger(process.env.SMTP_PORT, 587),
+    /** Port 465 is TLS from the start; 587 upgrades with STARTTLS. */
+    secure: parseBoolean(
+      process.env.SMTP_SECURE,
+      parseInteger(process.env.SMTP_PORT, 587) === 465,
+    ),
+    username: process.env.SMTP_USER?.trim() || '',
+    password: process.env.SMTP_PASSWORD?.trim() || '',
+    fromName: process.env.SMTP_FROM_NAME?.trim() || 'Pzee',
+    fromEmail:
+      process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim() || '',
+    /** How long a six-digit code stays usable. */
+    otpMinutes: parseInteger(process.env.OTP_MINUTES, 10),
+    /** Wrong guesses before a code is burned. */
+    otpMaxAttempts: parseInteger(process.env.OTP_MAX_ATTEMPTS, 5),
+  };
+}
 
 /**
  * The one-off fee that makes a PG listing public, and the referral reward paid

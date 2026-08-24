@@ -10,6 +10,10 @@ import { ExampleModule } from './modules/example/example.module';
 import { HealthModule } from './modules/health/health.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { CrmModule } from './modules/crm/crm.module';
+import { MailAdminModule } from './modules/mail/mail-admin.module';
+import { MailModule } from './modules/mail/mail.module';
+import { PhoneAdminModule } from './modules/phone/phone-admin.module';
+import { PhoneModule } from './modules/phone/phone.module';
 import { PgModule } from './modules/pg/pg.module';
 import { SubscribersModule } from './modules/subscribers/subscribers.module';
 import { SupportModule } from './modules/support/support.module';
@@ -40,6 +44,10 @@ import { appRoutes } from './routes/app.routes';
     ExampleModule,
     CrmModule,
     HealthModule,
+    MailModule,
+    MailAdminModule,
+    PhoneModule,
+    PhoneAdminModule,
     PgModule,
     SubscribersModule,
     SupportModule,

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { DatabaseModule } from '../../database/database.module';
+import { MailModule } from '../mail/mail.module';
+import { PhoneModule } from '../phone/phone.module';
 import { AuthController } from './controllers/auth.controller';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthService } from './services/auth.service';
@@ -10,6 +12,10 @@ import { SessionCookieService } from './services/session-cookie.service';
 @Module({
   imports: [
     DatabaseModule,
+    // Registration will not create an account until the address has been
+    // verified by a code we sent to it.
+    MailModule,
+    PhoneModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
