@@ -3,6 +3,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Prisma,
+  ReferralPayoutStatus,
   ResidentStatus,
 } from '../../../generated/prisma/client';
 import { DatabaseService } from '../../../database/database.service';
@@ -43,6 +44,19 @@ type ProfileRow = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>;
  */
 function toDateOnly(value: Date | null): string | null {
   return value ? value.toISOString().slice(0, 10) : null;
+}
+
+function sum(amounts: number[]): number {
+  return amounts.reduce((total, amount) => total + amount, 0);
+}
+
+function sumWhere(
+  payouts: Array<{ amount: number; status: ReferralPayoutStatus }>,
+  status: ReferralPayoutStatus,
+): number {
+  return sum(
+    payouts.filter((payout) => payout.status === status).map((p) => p.amount),
+  );
 }
 
 function blankToNull(value: string): string | null {
@@ -154,7 +168,7 @@ export class MeService {
    * would see money they cannot have yet.
    */
   async getReferrals(userId: string): Promise<ReferralsDetail> {
-    const [user, rewards, pendingReferrals] = await Promise.all([
+    const [user, rewards, payouts, pendingReferrals] = await Promise.all([
       this.databaseService.user.findUniqueOrThrow({
         where: { id: userId },
         select: { referralCode: true },
@@ -169,18 +183,47 @@ export class MeService {
           pg: { select: { name: true, pgCode: true } },
         },
       }),
+      this.databaseService.referralPayout.findMany({
+        where: { customerId: userId },
+        orderBy: { requestedAt: 'desc' },
+        select: {
+          id: true,
+          amount: true,
+          upiId: true,
+          status: true,
+          note: true,
+          requestedAt: true,
+          settledAt: true,
+        },
+      }),
       this.databaseService.pg.count({
         where: { referredById: userId, isPublished: false },
       }),
     ]);
 
+    const earnedRupees = sum(rewards.map((reward) => reward.amount));
+    const paidOutRupees = sumWhere(payouts, ReferralPayoutStatus.PAID);
+    const pendingPayoutRupees = sumWhere(
+      payouts,
+      ReferralPayoutStatus.REQUESTED,
+    );
+
     return {
       referralCode: user.referralCode,
-      earnedRupees: rewards.reduce((total, reward) => total + reward.amount, 0),
+      earnedRupees,
+      // A request in flight is spoken for. Counting only PAID here is what
+      // would let the same ₹100 be requested twice while an admin works
+      // through the first one.
+      availableRupees: earnedRupees - paidOutRupees - pendingPayoutRupees,
+      paidOutRupees,
+      pendingPayoutRupees,
       rewardPerReferral: this.configService.getOrThrow<number>(
         'app.listing.referralRewardRupees',
       ),
       pendingReferrals,
+      hasOpenPayout: payouts.some(
+        (payout) => payout.status === ReferralPayoutStatus.REQUESTED,
+      ),
       rewards: rewards.map((reward) => ({
         id: reward.id,
         pgName: reward.pg.name,
@@ -188,7 +231,67 @@ export class MeService {
         amount: reward.amount,
         earnedAt: reward.createdAt.toISOString(),
       })),
+      transactions: [
+        ...rewards.map((reward) => ({
+          id: reward.id,
+          kind: 'EARNED' as const,
+          amount: reward.amount,
+          status: 'EARNED',
+          label: reward.pg.name,
+          reference: reward.pg.pgCode,
+          note: null,
+          at: reward.createdAt.toISOString(),
+        })),
+        ...payouts.map((payout) => ({
+          id: payout.id,
+          kind: 'PAYOUT' as const,
+          amount: payout.amount,
+          status: payout.status,
+          label: `Payout to ${payout.upiId}`,
+          reference: null,
+          note: payout.note,
+          // A settled payout belongs in the history on the day it settled.
+          at: (payout.settledAt ?? payout.requestedAt).toISOString(),
+        })),
+      ].sort((a, b) => b.at.localeCompare(a.at)),
     };
+  }
+
+  /**
+   * A customer asking for their earnings to be sent out.
+   *
+   * Only one request may be open at a time, and it is always for the whole
+   * available balance — there is no partial amount to get wrong, and no way to
+   * queue several requests against the same money.
+   */
+  async requestPayout(
+    userId: string,
+    upiId: string,
+  ): Promise<ReferralsDetail> {
+    const summary = await this.getReferrals(userId);
+
+    if (summary.hasOpenPayout) {
+      throw new ConflictException(
+        'You already have a payout on the way. We will send it before you can request another.',
+      );
+    }
+
+    if (summary.availableRupees <= 0) {
+      throw new ConflictException(
+        'There is nothing to pay out yet. You earn once a PG you referred goes live.',
+      );
+    }
+
+    await this.databaseService.referralPayout.create({
+      data: {
+        customerId: userId,
+        amount: summary.availableRupees,
+        upiId,
+      },
+      select: { id: true },
+    });
+
+    return this.getReferrals(userId);
   }
 
   /**

@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Post,
   Req,
   Res,
   UseGuards,
@@ -28,6 +29,7 @@ import { SessionCookieService } from '../../auth/services/session-cookie.service
 import { CloseAccountResponse } from '../models/close-account-response.model';
 import { ProfileResponse } from '../models/profile-response.model';
 import { ReferralsResponse } from '../models/referrals-response.model';
+import { RequestPayoutDto } from '../models/request-payout.dto';
 import { StayResponse } from '../models/stay-response.model';
 import { UpdateProfileDto } from '../models/update-profile.dto';
 import {
@@ -153,6 +155,39 @@ export class MeController {
       success: true,
       message: 'Referrals retrieved successfully.',
       data: await this.meService.getReferrals(request.sessionUser.id),
+    };
+  }
+
+  @Post('me/referrals/payout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Ask for your referral earnings to be sent',
+    description:
+      'Requests the whole available balance. Only one request may be open at a time; the amount stays reserved until a Super Admin settles it.',
+  })
+  @ApiBody({ type: RequestPayoutDto })
+  @ApiOkResponse({
+    description: 'Payout requested.',
+    type: ReferralsResponse,
+  })
+  @ApiUnauthorizedResponse({ description: 'Session is missing or expired.' })
+  @ApiConflictResponse({
+    description: 'Nothing to pay out, or a payout is already on the way.',
+  })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error.' })
+  async requestPayout(
+    @Req() request: AuthenticatedRequest,
+    @Body() requestPayoutDto: RequestPayoutDto,
+  ): Promise<ReferralsResponse> {
+    const referrals = await this.meService.requestPayout(
+      request.sessionUser.id,
+      requestPayoutDto.upiId,
+    );
+
+    return {
+      success: true,
+      message: 'Payout requested. We will send it to your UPI id shortly.',
+      data: referrals,
     };
   }
 

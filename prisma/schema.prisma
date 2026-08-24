@@ -70,6 +70,10 @@ model User {
   referredPgs     Pg[]              @relation("PgReferrer")
   /// ₹100 credited to this customer each time a referred PG goes live.
   referralRewards ReferralReward[]
+  /// Requests to have those earnings sent out.
+  referralPayouts ReferralPayout[] @relation("ReferralPayoutCustomer")
+  /// Payouts this Super Admin has settled.
+  settledPayouts  ReferralPayout[] @relation("ReferralPayoutSettledBy")
   /// Listing fees this Super Admin has confirmed receipt of.
   confirmedFees   PlatformPayment[] @relation("PlatformPaymentConfirmedBy")
 
@@ -107,6 +111,13 @@ enum VerificationStatus {
 enum PlatformPaymentStatus {
   PENDING
   PAID
+}
+
+/// Where a customer's payout request has got to.
+enum ReferralPayoutStatus {
+  REQUESTED
+  PAID
+  REJECTED
 }
 
 model Pg {
@@ -181,6 +192,33 @@ model PlatformPayment {
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
+  @@index([status])
+}
+
+/**
+ * A customer asking for their referral earnings to be sent to them.
+ *
+ * A REQUESTED payout counts against the balance exactly as a PAID one does.
+ * That is what stops the same ₹100 being requested twice while an admin is
+ * still dealing with the first request.
+ */
+model ReferralPayout {
+  id          String               @id @default(cuid())
+  customerId  String
+  customer    User                 @relation("ReferralPayoutCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  /// Rupees, as everywhere else in this schema.
+  amount      Int
+  /// Where to send it. Not collected at registration, so it is asked for here.
+  upiId       String
+  status      ReferralPayoutStatus @default(REQUESTED)
+  /// Why it was rejected. A refusal with no reason only creates support work.
+  note        String?
+  requestedAt DateTime             @default(now())
+  settledAt   DateTime?
+  settledById String?
+  settledBy   User?                @relation("ReferralPayoutSettledBy", fields: [settledById], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
   @@index([status])
 }
 
