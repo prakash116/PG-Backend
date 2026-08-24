@@ -26,6 +26,7 @@ const ACCOUNT_SELECT = {
   email: true,
   role: true,
   isActive: true,
+  isBlocked: true,
   deletedAt: true,
   profileImage: true,
 } as const;
@@ -63,10 +64,25 @@ export class AccountLifecycleService {
 
     this.assertDeletable(user.role);
 
-    const closed = await this.databaseService.user.update({
-      where: { id: userId },
-      data: { isActive: false, deletedAt: new Date() },
-      select: ACCOUNT_SELECT,
+    const closed = await this.databaseService.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { isActive: false, deletedAt: new Date() },
+        select: ACCOUNT_SELECT,
+      });
+
+      // A closed owner cannot answer an enquiry, so their listing comes off the
+      // site at once rather than lingering for the whole grace period. The row
+      // itself survives until the purge, and `publishedAt` is deliberately left
+      // set — it is what tells `restore` the listing was live before.
+      if (updated.role === UserRole.PG_OWNER) {
+        await tx.pg.updateMany({
+          where: { ownerId: userId, isPublished: true },
+          data: { isPublished: false },
+        });
+      }
+
+      return updated;
     });
 
     this.logger.log(`Account closed: ${closed.email}`);
@@ -89,10 +105,25 @@ export class AccountLifecycleService {
       throw new ConflictException('This account is not closed.');
     }
 
-    const restored = await this.databaseService.user.update({
-      where: { id: userId },
-      data: { isActive: true, deletedAt: null },
-      select: ACCOUNT_SELECT,
+    const restored = await this.databaseService.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { isActive: true, deletedAt: null },
+        select: ACCOUNT_SELECT,
+      });
+
+      // Put the listing back exactly as it was. `publishedAt` set while
+      // `isPublished` is false means it was live and closing hid it — a PG that
+      // never published has no `publishedAt`, so it correctly stays private and
+      // its owner still has to pay the fee.
+      if (updated.role === UserRole.PG_OWNER) {
+        await tx.pg.updateMany({
+          where: { ownerId: userId, isPublished: false, publishedAt: { not: null } },
+          data: { isPublished: true },
+        });
+      }
+
+      return updated;
     });
 
     this.logger.log(`Account restored: ${restored.email}`);
@@ -136,20 +167,60 @@ export class AccountLifecycleService {
   }
 
   /**
-   * Two roles are refused, and not as an afterthought.
+   * Blocks an account, or lets it back in.
    *
-   * `Pg.ownerId` cascades, so removing an owner would take the PG with it —
-   * and with the PG, its rooms, residents, services and every payment ever
-   * recorded against them. That is a business's books, not one person's
-   * account, so it cannot be an accident on a settings page.
+   * Separate from closing: a block is a door held shut, reversible in a click
+   * and with no countdown behind it. `AuthService` already refuses to log a
+   * blocked account in and `JwtAuthGuard` already rejects the session it had,
+   * so this takes effect on the very next request.
    */
-  private assertDeletable(role: UserRole): void {
-    if (role === UserRole.PG_OWNER) {
+  async setBlocked(userId: string, blocked: boolean): Promise<ClosedAccount> {
+    const user = await this.databaseService.user.findUnique({
+      where: { id: userId },
+      select: ACCOUNT_SELECT,
+    });
+
+    if (!user) {
+      throw new NotFoundException('Account not found.');
+    }
+
+    if (user.role === UserRole.SUPER_ADMIN) {
+      throw new ConflictException('A Super Admin account cannot be blocked.');
+    }
+
+    if (user.isBlocked === blocked) {
       throw new ConflictException(
-        'A PG owner account cannot be deleted here: it would remove the PG along with its rooms, residents and payment history. Remove the PG first.',
+        blocked
+          ? 'This account is already blocked.'
+          : 'This account is not blocked.',
       );
     }
 
+    const updated = await this.databaseService.user.update({
+      where: { id: userId },
+      data: { isBlocked: blocked },
+      select: ACCOUNT_SELECT,
+    });
+
+    this.logger.log(
+      `Account ${blocked ? 'blocked' : 'unblocked'}: ${updated.email}`,
+    );
+
+    return this.present(updated);
+  }
+
+  /**
+   * Only a Super Admin is refused, and that is about the platform locking
+   * itself out rather than about the data.
+   *
+   * A PG owner *is* deletable, deliberately. `Pg.ownerId` cascades, so the
+   * purge at the end of the grace period takes the PG with the owner — and
+   * with it the rooms, residents, services and every payment recorded against
+   * them. Closing hides the listing at once; the thirty days before that
+   * becomes permanent is the whole safety net, which is why the confirmation
+   * has to spell out what goes.
+   */
+  private assertDeletable(role: UserRole): void {
     if (role === UserRole.SUPER_ADMIN) {
       throw new ConflictException('A Super Admin account cannot be deleted.');
     }

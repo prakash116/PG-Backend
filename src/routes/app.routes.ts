@@ -3,6 +3,7 @@ import { Routes } from '@nestjs/core';
 import { AuthModule } from '../modules/auth/auth.module';
 import { ExampleModule } from '../modules/example/example.module';
 import { HealthModule } from '../modules/health/health.module';
+import { ContactModule } from '../modules/contact/contact.module';
 import { CrmModule } from '../modules/crm/crm.module';
 import { PgModule } from '../modules/pg/pg.module';
 import { SubscribersModule } from '../modules/subscribers/subscribers.module';
@@ -27,6 +28,10 @@ export const appRoutes: Routes = [
   {
     path: 'v1/pg',
     module: CrmModule,
+  },
+  {
+    path: 'v1/contact',
+    module: ContactModule,
   },
   {
     path: 'v1/subscribers',

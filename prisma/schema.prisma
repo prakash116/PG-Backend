@@ -78,6 +78,8 @@ model User {
   confirmedFees   PlatformPayment[] @relation("PlatformPaymentConfirmedBy")
   /// Support queries this Super Admin has answered.
   resolvedTickets SupportTicket[]   @relation("SupportTicketResolvedBy")
+  /// Contact enquiries this Super Admin has closed.
+  resolvedEnquiries ContactEnquiry[] @relation("ContactEnquiryResolvedBy")
 
   /// The purge job scans for closed accounts past their window every day.
   @@index([deletedAt])
@@ -433,5 +435,34 @@ model SupportTicket {
   updatedAt    DateTime            @updatedAt
 
   @@index([pgId])
+  @@index([status])
+}
+
+/// Where a contact-form enquiry has got to.
+enum ContactEnquiryStatus {
+  NEW
+  RESOLVED
+}
+
+/**
+ * A message sent from the public Contact Us form.
+ *
+ * Deliberately standalone: the form is open to anyone, so there is no account
+ * to hang it off. Everything needed to reply is captured on the row itself.
+ */
+model ContactEnquiry {
+  id          String               @id @default(cuid())
+  name        String
+  phone       String
+  /// What it is about, in the sender's words.
+  reason      String
+  description String
+  status      ContactEnquiryStatus @default(NEW)
+  resolvedAt  DateTime?
+  resolvedById String?
+  resolvedBy  User?                @relation("ContactEnquiryResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
   @@index([status])
 }

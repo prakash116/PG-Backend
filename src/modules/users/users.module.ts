@@ -6,6 +6,7 @@ import { MeController } from './controllers/me.controller';
 import { UsersController } from './controllers/users.controller';
 import { AccountLifecycleService } from './services/account-lifecycle.service';
 import { MeService } from './services/me.service';
+import { UserStatsService } from './services/user-stats.service';
 import { UsersService } from './services/users.service';
 
 @Module({
@@ -13,6 +14,11 @@ import { UsersService } from './services/users.service';
   // MeController is declared first so `/v1/users/me` is matched before the
   // Super Admin listing at `/v1/users`.
   controllers: [MeController, UsersController],
-  providers: [AccountLifecycleService, MeService, UsersService],
+  providers: [
+    AccountLifecycleService,
+    MeService,
+    UsersService,
+    UserStatsService,
+  ],
 })
 export class UsersModule {}

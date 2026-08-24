@@ -8,6 +8,7 @@ import appConfig from './config/app.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { ExampleModule } from './modules/example/example.module';
 import { HealthModule } from './modules/health/health.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { CrmModule } from './modules/crm/crm.module';
 import { PgModule } from './modules/pg/pg.module';
 import { SubscribersModule } from './modules/subscribers/subscribers.module';
@@ -35,6 +36,7 @@ import { appRoutes } from './routes/app.routes';
     ScheduleModule.forRoot(),
     RouterModule.register(appRoutes),
     AuthModule,
+    ContactModule,
     ExampleModule,
     CrmModule,
     HealthModule,
