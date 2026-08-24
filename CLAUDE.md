@@ -100,6 +100,20 @@ and ask the developer to start it and report `/api/health` and
 
 `PORT` comes from `.env` (currently 5000), not the `3000` in the README.
 
+### `npm start` is the production command
+
+`npm start` runs `node dist/main`. Do not change it back to `nest start`.
+
+A hosting platform with no start command configured falls back to `npm start`,
+so whatever that script does is what production does. `nest start` recompiles
+TypeScript in memory at boot, which took a 512 MB Render instance past its heap
+limit before it bound a port — twice, months apart, because a dashboard setting
+can be cleared and nothing in the repository contradicted it. The default is now
+the safe one.
+
+Use `npm run start:dev` for local work; it watches and recompiles. `npm start`
+now needs `npm run build` first.
+
 Related Windows trap, for whoever is running it: a live `node dist/main` holds
 handles on `dist/`, so rebuilding over a running server leaves files in a
 pending-delete state and the next boot fails with a misleading

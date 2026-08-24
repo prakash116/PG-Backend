@@ -69,20 +69,39 @@ database connection, which is the more useful of the two after a deploy.
 
 ## 3. Render service settings
 
-Render's defaults do **not** work for this app. Set both explicitly:
-
 | Setting | Value |
 | --- | --- |
 | Build Command | `npm ci --include=dev && npx prisma migrate deploy && npm run build` |
-| Start Command | `npm run start:prod` |
+| Start Command | `npm run start:prod` (or leave blank) |
 
-`npm start` runs `nest start`, which is the development command: it recompiles
-from source, needs the dev dependencies at runtime, and is not what should serve
-traffic. `start:prod` runs the compiled `dist/main` directly.
+**Leaving the Start Command blank is now safe.** Render falls back to
+`npm start`, and `npm start` runs the compiled `dist/main`, exactly like
+`start:prod`. It used to be `nest start` — the development command, which
+recompiles TypeScript in memory at boot. That took the instance past its
+memory limit before it ever bound a port:
 
-If a deploy hangs on **"No open ports detected"**, the app is listening
-somewhere Render cannot reach. Check that `HOST` is unset — a stray
-`HOST=127.0.0.1` copied from a local `.env` binds loopback only.
+```
+> nest start
+==> No open ports detected, continuing to scan...
+FATAL ERROR: Ineffective mark-compacts near heap limit
+             Allocation failed - JavaScript heap out of memory
+==> Exited with status 134
+```
+
+It cost two deploys, months apart, because the dashboard setting can be
+cleared and nothing in the repository disagreed with it. Now the default is
+the correct one, so the setting cannot be lost again.
+
+For reference, the compiled app needs **39 MB of heap and 139 MB RSS** to come
+up, measured against this database. It boots fine constrained to a 460 MB
+old-space limit. If a deploy ever runs out of memory again, the app is not the
+reason — check what is actually being run.
+
+**"No open ports detected"** has two causes worth checking in order:
+
+1. Something other than `dist/main` is being started — see above.
+2. `HOST` is set. It must be unset; a stray `HOST=127.0.0.1` copied from a
+   local `.env` binds loopback only, where Render cannot reach it.
 
 ## 4. DNS — moving the API onto `api.pzee.in`
 
